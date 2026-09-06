@@ -14,7 +14,9 @@ fixed_step :: proc(s: ^State) {
 	dt := FIXED_DT
 
 	ai_system(s, dt)
+	weapon_system(s, dt)
 	movement_system(s, dt)
+	projectile_system(s, dt)
 	integration_system(s, dt)
 	collision_system(s, dt)
 	facing_system(s, dt)

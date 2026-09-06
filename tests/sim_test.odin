@@ -3,6 +3,7 @@ package tests
 import "../src/ecs"
 import "../src/sim"
 import "../src/world"
+import "core:math"
 import "core:os"
 import "core:testing"
 
@@ -167,4 +168,106 @@ inventory_stacks_within_limits :: proc(t: ^testing.T) {
 		sim.inventory_add(&inv, .Rock, 32)
 	}
 	testing.expect_value(t, sim.inventory_add(&inv, .Rock, 5), u16(0))
+}
+
+@(test)
+firing_follows_the_shooter_velocity :: proc(t: ^testing.T) {
+	s: sim.State
+	flat_state(&s)
+	defer sim.state_destroy(&s)
+
+	player := sim.spawn_player(&s, {40, 100})
+	for _ in 0 ..< 60 {sim.fixed_step(&s)} // settle on the ground
+
+	// Run right, so the player has a velocity to fire along.
+	for _ in 0 ..< 30 {
+		ecs.get(&s.control.intent, player).horizontal = 1
+		sim.fixed_step(&s)
+	}
+	testing.expect(t, ecs.get(&s.spatial.velocity, player).x > 0)
+
+	before := len(s.combat.projectile.dense)
+	ecs.get(&s.control.intent, player).fire_requested = true
+	sim.fixed_step(&s)
+
+	testing.expect_value(t, len(s.combat.projectile.dense), before + 1)
+	fireball := s.combat.projectile.owners[before]
+	testing.expect(t, ecs.get(&s.spatial.velocity, fireball).x > 0, "fired along the shooter's velocity")
+
+	// Cooldown: a second request in the same second is refused.
+	ecs.get(&s.control.intent, player).fire_requested = true
+	sim.fixed_step(&s)
+	testing.expect_value(t, len(s.combat.projectile.dense), before + 1)
+}
+
+@(test)
+a_fireball_falls_and_bounces :: proc(t: ^testing.T) {
+	s: sim.State
+	flat_state(&s)
+	defer sim.state_destroy(&s)
+
+	// Fired flat, well above the floor at tile row 10.
+	e := sim.spawn_fireball(&s, {40, 40}, {60, 0}, ecs.NIL)
+
+	// Gravity: no downward velocity to begin with, some after a step.
+	sim.fixed_step(&s)
+	testing.expect(t, ecs.get(&s.spatial.velocity, e).y > 0, "gravity should pull it down")
+
+	// Bounce: it must come back up off the floor at least once.
+	bounced := false
+	for _ in 0 ..< 120 {
+		sim.fixed_step(&s)
+		if !ecs.entity_is_alive(&s.entities, e) {
+			break
+		}
+		if ecs.get(&s.spatial.velocity, e).y < 0 {
+			bounced = true
+			break
+		}
+	}
+	testing.expect(t, bounced, "hitting the floor should reverse it, not stop it")
+	testing.expect(t, ecs.get(&s.spatial.velocity, e).x > 0, "and it keeps travelling")
+}
+
+@(test)
+a_fireball_damages_what_it_hits_and_spares_its_owner :: proc(t: ^testing.T) {
+	s: sim.State
+	flat_state(&s)
+	defer sim.state_destroy(&s)
+
+	player := sim.spawn_player(&s, {40, 100})
+	walker := sim.spawn_walker(&s, {120, 100})
+	before := ecs.get(&s.status.health, walker).current
+
+	// Spawned inside the player: the owner is excluded, so this must survive
+	// the tick rather than hitting the entity that fired it.
+	fireball := sim.spawn_fireball(&s, {46, 106}, {200, 0}, player)
+	sim.fixed_step(&s)
+	testing.expect(t, ecs.entity_is_alive(&s.entities, fireball), "a shot does not hit its owner")
+	testing.expect_value(t, ecs.get(&s.status.health, player).current, 100)
+
+	for _ in 0 ..< 60 {
+		sim.fixed_step(&s)
+		if !ecs.entity_is_alive(&s.entities, fireball) {
+			break
+		}
+	}
+	testing.expect(t, !ecs.entity_is_alive(&s.entities, fireball), "a hit spends the projectile")
+	testing.expect(t, ecs.get(&s.status.health, walker).current < before, "and damages the target")
+}
+
+@(test)
+a_fireball_expires_on_its_own :: proc(t: ^testing.T) {
+	s: sim.State
+	flat_state(&s)
+	defer sim.state_destroy(&s)
+
+	// Straight up into open sky: nothing to hit, so only the lifetime ends it.
+	e := sim.spawn_fireball(&s, {40, -400}, {0, -400}, ecs.NIL)
+	steps := int(math.ceil(sim.FIREBALL_LIFETIME / sim.FIXED_DT)) + 1
+	for _ in 0 ..< steps {
+		sim.fixed_step(&s)
+	}
+	testing.expect(t, !ecs.entity_is_alive(&s.entities, e))
+	testing.expect(t, !ecs.has(&s.spatial.position, e), "and leaves no component behind")
 }

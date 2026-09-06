@@ -14,6 +14,7 @@ Damage_Source :: enum u8 {
 	Unknown,
 	Hazard_Tile,
 	Contact,
+	Projectile,
 }
 
 Pickup_Event :: struct {
@@ -28,6 +29,7 @@ Spawn_Request :: world.Spawn_Request
 Sound_Id :: enum u8 {
 	None,
 	Jump,
+	Fire,
 	Hurt,
 	Pickup,
 	Death,

@@ -82,6 +82,17 @@ entity_definitions := [Entity_Kind]Entity_Definition {
 		tint     = {230, 196, 84, 255},
 		depth    = 4,
 	},
+	// A fireball has no `move_speed` or `jump_speed`: it is not driven by
+	// intent, so `movement_system` never sees it. What it does need from this
+	// row is gravity, which `projectile_system` reads from here rather than
+	// carrying a private copy on every shot in flight.
+	.Fireball = {
+		movement = {gravity = 520, max_fall_speed = 640},
+		collider = {6, 6},
+		texture  = .Projectile,
+		tint     = {240, 148, 56, 255},
+		depth    = 8,
+	},
 }
 
 Identity :: struct {

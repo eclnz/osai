@@ -27,9 +27,12 @@ Component_Flag :: enum u8 {
 	Appearance,
 	Animation,
 	Facing,
+	Bounce,
 	Layer,
 	Inventory,
 	Item,
+	Weapon,
+	Projectile,
 }
 
 Component_Flags :: bit_set[Component_Flag;u32]
@@ -51,6 +54,7 @@ Dormant_Entity :: struct {
 	using control:      Control_Snapshot,
 	using status:         Life_Snapshot,
 	using items:        Items_Snapshot,
+	using combat:       Combat_Snapshot,
 }
 
 // One line per group, same as `detach_all_components`. Each group decides
@@ -65,6 +69,7 @@ capture_entity :: proc(s: ^State, e: ecs.Entity) -> Dormant_Entity {
 	d.present += status_capture(&s.status, e, &d.status)
 	d.present += presentation_capture(&s.presentation, e, &d.presentation)
 	d.present += items_capture(&s.items, e, &d.items)
+	d.present += combat_capture(&s.combat, e, &d.combat)
 	return d
 }
 
@@ -76,4 +81,5 @@ restore_entity :: proc(s: ^State, d: Dormant_Entity) {
 	status_restore(&s.status, e, d.status, d.present)
 	presentation_restore(&s.presentation, e, d.presentation, d.present)
 	items_restore(&s.items, e, d.items, d.present)
+	combat_restore(&s.combat, e, d.combat, d.present)
 }

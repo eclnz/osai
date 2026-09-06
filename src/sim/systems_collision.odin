@@ -43,6 +43,10 @@ AXIS_Y :: 1
 // rule both passes followed when they were written out separately, and it is
 // what makes them the same procedure rather than two similar ones.
 //
+// `bounce` decides what happens to velocity at the contact. The zero value -
+// what every entity without the component gets - is "stop dead", which is the
+// behaviour this procedure had before bouncing existed.
+//
 // Returns whether the entity was stopped while moving in the positive
 // direction; on the y axis that means it landed on something.
 @(private = "file")
@@ -53,6 +57,8 @@ sweep_axis :: proc(
 	pos: ^Vec2,
 	vel: ^Vec2,
 	col: Collider,
+	bounce: Bounce,
+	dt: f32,
 ) -> (stopped_positive: bool) {
 	if vel^[axis] == 0 {
 		return false
@@ -74,7 +80,22 @@ sweep_axis :: proc(
 			} else {
 				pos^[axis] = f32(a + 1) * TILE_SIZE
 			}
+			// Reflect if the entity bounces and still has the speed to be
+			// worth reflecting; otherwise settle, which is the only thing that
+			// stops a ball shivering on a floor forever.
+			reflected := -vel^[axis] * bounce.restitution
+			if abs(reflected) > bounce.min_speed {
+				vel^[axis] = reflected
+				vel^[other] *= 1 - bounce.friction
+				// It reversed rather than stopped, so it is not resting on
+				// anything: a bouncing entity is never grounded by this pass.
+				return false
+			}
+			// Too slow to bounce: it is resting against this surface, so the
+			// contact is a roll and drags along it instead. Linear, so it
+			// actually comes to a stop rather than approaching zero forever.
 			vel^[axis] = 0
+			vel^[other] = move_toward(vel^[other], 0, bounce.rolling * dt)
 			return moving_positive
 		}
 	}
@@ -82,19 +103,20 @@ sweep_axis :: proc(
 }
 
 collision_system :: proc(s: ^State, dt: f32) {
-	terrain_collision(s)
+	terrain_collision(s, dt)
 	hazard_damage(s, dt)
 
 	// One grid, rebuilt after terrain resolution so it reflects final
 	// positions, and shared by every entity-vs-entity interaction.
 	bp := broadphase_build(s)
 	entity_collision(s, &bp)
+	projectile_collision(s, &bp)
 }
 
 // Entity vs terrain, axis at a time. X is resolved against the entity's
 // *previous* y so that walking into a wall does not also read as landing on
 // the tile above it; Y is then resolved at the corrected x.
-terrain_collision :: proc(s: ^State) {
+terrain_collision :: proc(s: ^State, dt: f32) {
 	// One cursor for the whole pass: consecutive entities are often in the
 	// same chunk, so it keeps paying off across the loop, not just within it.
 	cur := world.cursor(&s.terrain)
@@ -115,11 +137,13 @@ terrain_collision :: proc(s: ^State) {
 			continue
 		}
 		prev := ecs.get_or(&s.spatial.previous_position, e, pos^)
+		// Absent means "stop dead" - see `sweep_axis`.
+		bounce := ecs.get_or(&s.spatial.bounce, e, Bounce{})
 
 		// X is resolved against the entity's *previous* y, so that walking into
 		// a wall does not also read as landing on the tile above it.
-		sweep_axis(&cur, AXIS_X, {pos.x, prev.y}, pos, &vel, col^)
-		landed := sweep_axis(&cur, AXIS_Y, pos^, pos, &vel, col^)
+		sweep_axis(&cur, AXIS_X, {pos.x, prev.y}, pos, &vel, col^, bounce, dt)
+		landed := sweep_axis(&cur, AXIS_Y, pos^, pos, &vel, col^, bounce, dt)
 
 		if g := ecs.get(&s.spatial.grounded, e); g != nil {
 			// Standing still on a floor keeps `landed` false, so also probe
@@ -220,5 +244,60 @@ entity_collision :: proc(s: ^State, bp: ^Broadphase) {
 				count       = slot.count,
 			})
 		}
+	}
+}
+
+// Projectiles against anything damageable. This is the "an arrow against
+// anything with health" the comment above anticipated: a second small system
+// asking the same grid, not another loop over two arrays.
+//
+// A hit is one damage event and the end of the projectile. Spent projectiles
+// are collected and destroyed after the loop, because destroying inline would
+// swap-and-pop the array being iterated.
+projectile_collision :: proc(s: ^State, bp: ^Broadphase) {
+	if len(s.combat.projectile.dense) == 0 {
+		return
+	}
+
+	near := make([dynamic]u32, context.temp_allocator)
+	spent := make([dynamic]ecs.Entity, context.temp_allocator)
+
+	for proj, pi in s.combat.projectile.dense {
+		e := s.combat.projectile.owners[pi]
+		p_pos := ecs.get(&s.spatial.position, e)
+		p_col := ecs.get(&s.spatial.collider, e)
+		if p_pos == nil || p_col == nil {
+			continue
+		}
+		p_box := aabb_of(p_pos^, p_col^)
+
+		clear(&near)
+		broadphase_query(bp, p_box, &near)
+
+		for idx in near {
+			target := bp.items[idx]
+			if target == e || target == proj.owner {
+				continue
+			}
+			if !overlaps(p_box, bp.boxes[idx]) {
+				continue
+			}
+			// Damageable is a component question, like everything else here:
+			// no health, no hit, and the fireball flies on through.
+			if !ecs.has(&s.status.health, target) {
+				continue
+			}
+			append(&s.events.damage, Damage_Event{
+				target = target,
+				amount = proj.damage,
+				source = .Projectile,
+			})
+			append(&spent, e)
+			break
+		}
+	}
+
+	for e in spent {
+		entity_destroy(s, e)
 	}
 }

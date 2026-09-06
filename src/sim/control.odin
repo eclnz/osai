@@ -15,6 +15,9 @@ Movement :: struct {
 Intent :: struct {
 	horizontal:     f32, // -1 .. 1
 	jump_requested: bool,
+	// Latched like `jump_requested`, and consumed by `weapon_system` in the
+	// same way: whoever writes intent sets it, whoever acts on it clears it.
+	fire_requested: bool,
 }
 
 AI_Behaviour :: enum u8 {

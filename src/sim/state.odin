@@ -16,6 +16,7 @@ State :: struct {
 	status: Status,
 	presentation: Presentation,
 	items: Items,
+	combat: Combat,
 
 	terrain: world.Terrain,
 	events:  Event_Queues,
@@ -42,6 +43,7 @@ state_destroy :: proc(s: ^State) {
 	status_destroy(&s.status)
 	presentation_destroy(&s.presentation)
 	items_destroy(&s.items)
+	combat_destroy(&s.combat)
 
 	residency_destroy(&s.residency)
 
@@ -60,6 +62,7 @@ detach_all_components :: proc(s: ^State, e: ecs.Entity) {
 	status_detach(&s.status, e)
 	presentation_detach(&s.presentation, e)
 	items_detach(&s.items, e)
+	combat_detach(&s.combat, e)
 }
 
 entity_destroy :: proc(s: ^State, e: ecs.Entity) {

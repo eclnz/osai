@@ -16,12 +16,15 @@ import "../sim"
 Profile :: struct {
 	streaming:    Stopwatch,
 	ai:           Stopwatch,
+	weapon:       Stopwatch,
 	movement:     Stopwatch,
+	projectile:   Stopwatch,
 	integration:  Stopwatch,
 	terrain:      Stopwatch,
 	hazard:       Stopwatch,
 	broadphase:   Stopwatch,
 	entity_hit:   Stopwatch,
+	projectile_hit: Stopwatch,
 	facing:       Stopwatch,
 	drain_damage: Stopwatch,
 	drain_pick:   Stopwatch,
@@ -56,14 +59,17 @@ profile :: proc(s: ^sim.State, ticks: int) -> Profile {
 		}
 
 		begin(&p.ai);sim.ai_system(s, dt);end(&p.ai)
+		begin(&p.weapon);sim.weapon_system(s, dt);end(&p.weapon)
 		begin(&p.movement);sim.movement_system(s, dt);end(&p.movement)
+		begin(&p.projectile);sim.projectile_system(s, dt);end(&p.projectile)
 		begin(&p.integration);sim.integration_system(s, dt);end(&p.integration)
 
 		// collision_system's three passes, timed separately
-		begin(&p.terrain);sim.terrain_collision(s);end(&p.terrain)
+		begin(&p.terrain);sim.terrain_collision(s, dt);end(&p.terrain)
 		begin(&p.hazard);sim.hazard_damage(s, dt);end(&p.hazard)
 		begin(&p.broadphase);bp := sim.broadphase_build(s);end(&p.broadphase)
 		begin(&p.entity_hit);sim.entity_collision(s, &bp);end(&p.entity_hit)
+		begin(&p.projectile_hit);sim.projectile_collision(s, &bp);end(&p.projectile_hit)
 
 		begin(&p.facing);sim.facing_system(s, dt);end(&p.facing)
 		begin(&p.drain_damage);sim.drain_damage(s);end(&p.drain_damage)
@@ -89,12 +95,15 @@ samples :: proc(p: Profile, allocator := context.allocator) -> [dynamic]Sample {
 	}
 	add(&out, "streaming", p.streaming)
 	add(&out, "ai", p.ai)
+	add(&out, "weapon", p.weapon)
 	add(&out, "movement", p.movement)
+	add(&out, "projectile", p.projectile)
 	add(&out, "integration", p.integration)
 	add(&out, "terrain_collision", p.terrain)
 	add(&out, "hazard_damage", p.hazard)
 	add(&out, "broadphase", p.broadphase)
 	add(&out, "entity_collision", p.entity_hit)
+	add(&out, "projectile_collision", p.projectile_hit)
 	add(&out, "facing", p.facing)
 	add(&out, "drain_damage", p.drain_damage)
 	add(&out, "drain_pickups", p.drain_pick)

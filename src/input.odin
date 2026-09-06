@@ -28,6 +28,9 @@ input_system :: proc(s: ^sim.State) {
 	if rl.IsKeyPressed(.SPACE) || rl.IsKeyPressed(.UP) || rl.IsKeyPressed(.W) {
 		intent.jump_requested = true
 	}
+	if rl.IsKeyPressed(.F) || rl.IsMouseButtonPressed(.LEFT) {
+		intent.fire_requested = true
+	}
 }
 
 // Called after the fixed steps have run. Clearing only once a step has
@@ -39,5 +42,6 @@ input_end_frame :: proc(s: ^sim.State, steps_run: int) {
 	}
 	if intent := ecs.get(&s.control.intent, s.player); intent != nil {
 		intent.jump_requested = false
+		intent.fire_requested = false
 	}
 }
