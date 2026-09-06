@@ -15,6 +15,28 @@ Chunk :: struct {
 	// Set by any write. Only dirty chunks are saved; the rest regenerate
 	// from the seed, which is why generation has to be deterministic.
 	dirty: bool,
+	// Whether any tile in here has a non-zero `hazard`. Derived from the
+	// tiles, never saved - `insert_chunk` recomputes it for every chunk that
+	// enters the terrain, whether it came from generation or from a file, so
+	// there is no path that can forget to.
+	//
+	// Hazard is rare: it exists so that a pass asking "is anything standing in
+	// lava" can answer no for a whole chunk instead of reading every tile
+	// under every entity. Same shape as `tile_definitions` - a question about
+	// terrain answered from terrain, not re-derived per entity per tick.
+	any_hazard: bool,
+}
+
+// Recomputed rather than maintained incrementally, because the only callers
+// are chunk insertion and the rare write that removes the last hazard tile.
+chunk_recompute_hazard :: proc(chunk: ^Chunk) {
+	chunk.any_hazard = false
+	for tile in chunk.tiles {
+		if tile_definitions[tile].hazard > 0 {
+			chunk.any_hazard = true
+			return
+		}
+	}
 }
 
 Terrain :: struct {
@@ -116,8 +138,19 @@ set_tile :: proc(t: ^Terrain, tc: Tile_Coord, tile: Tile) -> bool {
 	if chunk == nil {
 		return false
 	}
-	chunk.tiles[tile_index_in_chunk(tc)] = tile
+	idx := tile_index_in_chunk(tc)
+	was_hazard := tile_definitions[chunk.tiles[idx]].hazard > 0
+	chunk.tiles[idx] = tile
 	chunk.dirty = true
+
+	// Kept exact rather than conservative. Adding hazard is a flag set;
+	// removing the last one is the only case that has to look at the rest of
+	// the chunk, and it is rare enough to pay for.
+	if tile_definitions[tile].hazard > 0 {
+		chunk.any_hazard = true
+	} else if was_hazard {
+		chunk_recompute_hazard(chunk)
+	}
 	return true
 }
 
@@ -131,6 +164,9 @@ insert_chunk :: proc(t: ^Terrain, chunk: ^Chunk) {
 	if existing, ok := t.chunks[chunk.coord]; ok {
 		free(existing)
 	}
+	// Here rather than in each producer: generation and save-loading both
+	// arrive through this door, so deriving it once means neither can forget.
+	chunk_recompute_hazard(chunk)
 	t.chunks[chunk.coord] = chunk
 }
 
@@ -197,4 +233,17 @@ cursor_tile_at :: proc(c: ^Tile_Cursor, tc: Tile_Coord) -> Tile {
 
 cursor_is_solid_at :: proc(c: ^Tile_Cursor, tc: Tile_Coord) -> bool {
 	return is_solid_tile(cursor_tile_at(c, tc))
+}
+
+// Whether the chunk containing `tc` holds any hazard at all. Resolves through
+// the same cached chunk pointer as a tile read, so asking this first and only
+// then reading tiles costs nothing extra when the answer is yes.
+cursor_chunk_has_hazard :: proc(c: ^Tile_Cursor, tc: Tile_Coord) -> bool {
+	cc := chunk_coord_of_tile(tc)
+	if !c.primed || cc != c.cc {
+		c.cc = cc
+		c.chunk = get_chunk(c.terrain, cc)
+		c.primed = true
+	}
+	return c.chunk != nil && c.chunk.any_hazard
 }

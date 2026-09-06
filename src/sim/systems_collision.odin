@@ -168,6 +168,25 @@ terrain_collision :: proc(s: ^State, dt: f32) {
 	}
 }
 
+// Whether any chunk the span touches holds hazard at all. A collider is at
+// most one broadphase cell across and a chunk is 512 world units, so a box
+// spans at most two chunks per axis; the loop is one iteration in almost every
+// case, and the cursor caches the chunk the tile scan below then reuses.
+@(private = "file")
+span_may_be_hazardous :: proc(cur: ^world.Tile_Cursor, lo, hi: world.Tile_Coord) -> bool {
+	lo_cc := world.chunk_coord_of_tile(lo)
+	hi_cc := world.chunk_coord_of_tile(hi)
+	for cy in lo_cc.y ..= hi_cc.y {
+		for cx in lo_cc.x ..= hi_cc.x {
+			probe := world.Tile_Coord{cx * world.CHUNK_TILES, cy * world.CHUNK_TILES}
+			if world.cursor_chunk_has_hazard(cur, probe) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 hazard_damage :: proc(s: ^State, dt: f32) {
 	cur := world.cursor(&s.terrain)
 
@@ -182,6 +201,14 @@ hazard_damage :: proc(s: ^State, dt: f32) {
 
 		box := aabb_of(pos^, col^)
 		lo, hi := tile_span(box)
+
+		// Hazard is a property of terrain, so ask terrain once instead of
+		// re-deriving it from every tile under every entity every tick. Almost
+		// always false, and then this entity costs one chunk lookup.
+		if !span_may_be_hazardous(&cur, lo, hi) {
+			continue
+		}
+
 		total: f32
 		for ty in lo.y ..= hi.y {
 			for tx in lo.x ..= hi.x {

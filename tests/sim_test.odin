@@ -115,6 +115,43 @@ hazard_tiles_damage_through_the_queue :: proc(t: ^testing.T) {
 	testing.expect(t, after < before, "standing in lava should hurt")
 }
 
+// The hazard scan is gated on a per-chunk "any hazard at all" flag, so the
+// flag has to track writes in both directions. Adding hazard is a flag set;
+// removing the last of it is the case that has to look at the rest of the
+// chunk, and getting that wrong would leave an entity taking damage from lava
+// that is no longer there - or, worse the other way, standing in lava unhurt.
+@(test)
+removing_the_last_hazard_tile_stops_the_damage :: proc(t: ^testing.T) {
+	s: sim.State
+	flat_state(&s)
+	defer sim.state_destroy(&s)
+
+	for tx in 0 ..< i32(8) {
+		world.set_tile(&s.terrain, {tx, 9}, .Lava)
+	}
+	testing.expect(t, world.get_chunk(&s.terrain, {0, 0}).any_hazard, "lava marks the chunk")
+
+	e := sim.spawn_player(&s, {40, 0})
+	for _ in 0 ..< 60 {
+		sim.fixed_step(&s)
+	}
+	hurt := ecs.get(&s.status.health, e).current
+
+	for tx in 0 ..< i32(8) {
+		world.set_tile(&s.terrain, {tx, 9}, .Empty)
+	}
+	testing.expect(
+		t,
+		!world.get_chunk(&s.terrain, {0, 0}).any_hazard,
+		"clearing the last lava tile must clear the flag, not leave it set",
+	)
+
+	for _ in 0 ..< 60 {
+		sim.fixed_step(&s)
+	}
+	testing.expect_value(t, ecs.get(&s.status.health, e).current, hurt)
+}
+
 @(test)
 pickups_move_through_the_queue_and_destroy_the_item :: proc(t: ^testing.T) {
 	s: sim.State
