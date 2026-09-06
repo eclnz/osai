@@ -1,5 +1,6 @@
 package main
 
+import "devtools"
 import "ecs"
 import "render"
 import "sim"
@@ -7,8 +8,8 @@ import "world"
 
 import "core:fmt"
 import "core:os"
+import "core:slice"
 import "core:strconv"
-import "core:time"
 import "core:strings"
 import rl "vendor:raylib"
 
@@ -26,6 +27,12 @@ Options :: struct {
 	// Drop the vsync hint so the frame rate reports actual capacity rather
 	// than the display's refresh rate. Measurement only - not a play mode.
 	novsync: bool,
+	// Load test: spawn this many extra entities before the headless run and
+	// hold the player still, so residency stays put and the tick cost is
+	// measured against a stable population.
+	entities: int,
+	// Per-system breakdown instead of a single tick number.
+	profile: bool,
 }
 
 SAVE_PATH :: "save.bin"
@@ -40,7 +47,7 @@ main :: proc() {
 	start_world(&state)
 
 	if opt.headless {
-		run_headless(&state, opt.ticks)
+		run_headless(&state, opt.ticks, opt.entities, opt.profile)
 		return
 	}
 	run_windowed(&state, opt)
@@ -91,12 +98,11 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 	alpha := f32(0)
 	frame := 0
 
-	// Frame *work* time, measured up to EndDrawing and so excluding the
-	// present. On macOS the compositor paces presentation to the display
-	// whatever the vsync hint says, which makes the FPS counter a reading of
-	// the panel rather than of the game. This is the number that is not.
-	work_total: time.Duration
-	work_max: time.Duration
+	// Frame *work*, measured up to EndDrawing and so excluding the present.
+	// On macOS the compositor paces presentation to the display whatever the
+	// vsync hint says, which makes the FPS counter a reading of the panel
+	// rather than of the game. This is the number that is not.
+	work: devtools.Stopwatch
 
 	for !rl.WindowShouldClose() {
 		if opt.frames > 0 && frame >= opt.frames {
@@ -105,7 +111,7 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 		frame += 1
 
 		frame_dt := rl.GetFrameTime()
-		work_start := time.tick_now()
+		devtools.begin(&work)
 
 		// 0. streaming - residency around the player
 		player_pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})
@@ -129,10 +135,7 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 		// 10. rendering - reads only
 		render.draw(&r, s)
 		render.draw_debug(&r, s, alpha, acc.steps_run)
-		work := time.tick_since(work_start)
-		work_total += work
-		work_max = max(work_max, work)
-
+		devtools.end(&work)
 		rl.EndDrawing()
 
 		// Sound requests are drained by presentation once per frame. There is
@@ -149,15 +152,35 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 		}
 	}
 
-	if frame > 0 {
-		mean := time.duration_microseconds(work_total) / f64(frame)
-		peak := time.duration_microseconds(work_max)
-		fmt.printfln("frames           %v", frame)
-		fmt.printfln("frame work       %.0f us mean, %.0f us peak", mean, peak)
+	if work.count > 0 {
+		fmt.printfln("frames           %v", work.count)
+		fmt.printfln("frame work       %.0f us mean, %.0f us peak",
+			devtools.mean_us(work), devtools.peak_us(work))
 		// What the frame rate would be if nothing paced the present. Compare
 		// against the FPS counter: if that reads your refresh rate and this
 		// reads far higher, the game is idle-waiting, not working.
-		fmt.printfln("uncapped         %.0f fps mean, %.0f fps worst", 1e6 / mean, 1e6 / peak)
+		fmt.printfln("uncapped         %.0f fps mean", devtools.mean_hz(work))
+	}
+}
+
+@(private = "file")
+report_profile :: proc(s: ^sim.State, ticks: int) {
+	p := devtools.profile(s, ticks)
+	rows := devtools.samples(p)
+	defer delete(rows)
+
+	slice.sort_by(rows[:], proc(a, b: devtools.Sample) -> bool {
+		return a.mean_us > b.mean_us
+	})
+
+	total := devtools.mean_us(p.tick)
+	fmt.printfln("live entities    %v", s.entities.live_count)
+	fmt.printfln("tick             %.3f us mean, %.0f us peak", total, devtools.peak_us(p.tick))
+	fmt.println("")
+	fmt.printfln("%-20s %10s %8s %10s", "system", "mean us", "share", "peak us")
+	for r in rows {
+		share := total > 0 ? 100 * r.mean_us / total : 0
+		fmt.printfln("%-20s %10.3f %7.1f%% %10.0f", r.name, r.mean_us, share, r.peak_us)
 	}
 }
 
@@ -182,17 +205,32 @@ handle_hotkeys :: proc(s: ^sim.State) {
 // raylib out of `sim` entirely. This runs the same fixed step with a scripted
 // intent, so a seed and a tick count fully describe a run.
 
-run_headless :: proc(s: ^sim.State, ticks: int) {
+run_headless :: proc(s: ^sim.State, ticks: int, extra_entities := 0, profile := false) {
 	fmt.printfln("headless: seed %v, %v ticks", s.seed, ticks)
 
+	load_test := extra_entities > 0
+	if load_test {
+		devtools.spawn_load(s, extra_entities)
+		fmt.printfln("load test:       %v extra entities", extra_entities)
+	}
+
+	if profile {
+		report_profile(s, ticks)
+		return
+	}
+
+	tick: devtools.Stopwatch
 	for i in 0 ..< ticks {
+		devtools.begin(&tick)
 		player_pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})
 		sim.streaming_update(s, player_pos)
 
-		// Scripted input: walk right, jump every second.
+		// Scripted input: walk right, jump every second. Under a load test the
+		// player holds still instead, so streaming does not unload the
+		// population we are trying to measure against.
 		if intent := ecs.get(&s.control.intent, s.player); intent != nil {
-			intent.horizontal = 1
-			intent.jump_requested = i % 60 == 0
+			intent.horizontal = load_test ? 0 : 1
+			intent.jump_requested = !load_test && i % 60 == 0
 		}
 
 		sim.fixed_step(s)
@@ -204,6 +242,7 @@ run_headless :: proc(s: ^sim.State, ticks: int) {
 			fmt.printfln("  tick %v: player died, respawning", s.tick)
 			respawn_player(s)
 		}
+		devtools.end(&tick)
 	}
 
 	pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})
@@ -211,6 +250,8 @@ run_headless :: proc(s: ^sim.State, ticks: int) {
 	anim := ecs.get_or(&s.presentation.animation, s.player, sim.Animation_State{})
 
 	fmt.printfln("tick             %v", s.tick)
+	fmt.printfln("tick cost        %.3f us mean, %.0f us peak  (%.0f ticks/s)",
+		devtools.mean_us(tick), devtools.peak_us(tick), devtools.mean_hz(tick))
 	fmt.printfln("player position  %.1f, %.1f", pos.x, pos.y)
 	def := sim.definition_of(&s.identity, s.player)
 	fmt.printfln("player health    %.1f / %.1f", health.current, def.max_health)
@@ -244,8 +285,12 @@ parse_args :: proc() -> Options {
 		switch {
 		case arg == "--headless":
 			opt.headless = true
+		case arg == "--profile":
+			opt.profile = true
 		case arg == "--novsync":
 			opt.novsync = true
+		case strings.has_prefix(arg, "--entities="):
+			opt.entities = strconv.parse_int(arg[len("--entities="):]) or_else opt.entities
 		case strings.has_prefix(arg, "--seed="):
 			opt.seed = u64(strconv.parse_u64(arg[len("--seed="):]) or_else opt.seed)
 		case strings.has_prefix(arg, "--ticks="):
@@ -258,7 +303,7 @@ parse_args :: proc() -> Options {
 			opt.screenshot = arg[len("--screenshot="):]
 		case arg == "--help" || arg == "-h":
 			fmt.println(
-				"osai [--headless] [--ticks=N] [--seed=N] [--load=PATH] [--frames=N] [--screenshot=PATH] [--novsync]",
+				"osai [--headless] [--ticks=N] [--seed=N] [--load=PATH] [--frames=N] [--screenshot=PATH] [--novsync] [--entities=N] [--profile]",
 			)
 			os.exit(0)
 		case:

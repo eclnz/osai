@@ -160,3 +160,32 @@ discard_if_clean :: proc(t: ^Terrain, cc: Chunk_Coord) -> bool {
 	free(chunk)
 	return true
 }
+
+// A tile query that remembers the chunk it last resolved.
+Tile_Cursor :: struct {
+	terrain: ^Terrain,
+	cc:      Chunk_Coord,
+	chunk:   ^Chunk,
+	primed:  bool,
+}
+
+cursor :: proc(t: ^Terrain) -> Tile_Cursor {
+	return Tile_Cursor{terrain = t}
+}
+
+cursor_tile_at :: proc(c: ^Tile_Cursor, tc: Tile_Coord) -> Tile {
+	cc := chunk_coord_of_tile(tc)
+	if !c.primed || cc != c.cc {
+		c.cc = cc
+		c.chunk = get_chunk(c.terrain, cc)
+		c.primed = true
+	}
+	if c.chunk == nil {
+		return .Empty
+	}
+	return c.chunk.tiles[tile_index_in_chunk(tc)]
+}
+
+cursor_is_solid_at :: proc(c: ^Tile_Cursor, tc: Tile_Coord) -> bool {
+	return is_solid_tile(cursor_tile_at(c, tc))
+}

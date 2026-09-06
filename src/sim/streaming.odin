@@ -26,6 +26,13 @@ import "../world"
 Residency :: struct {
 	dormant: map[world.Chunk_Coord][dynamic]Dormant_Entity,
 	resident: map[world.Chunk_Coord]bool,
+	// Last centre the residency set was computed for. The wanted set is a pure
+	// function of centre and radius, so if neither moved there is nothing to
+	// diff - which is what makes the cost land at chunk boundaries rather than
+	// on every step.
+	center:         world.Chunk_Coord,
+	center_radius:  int,
+	centered:       bool,
 	populated: map[world.Chunk_Coord]bool,
 }
 
@@ -82,6 +89,14 @@ STREAM_RADIUS :: 2
 // iteration happens every step.
 streaming_update :: proc(s: ^State, center: Vec2, radius := STREAM_RADIUS) {
 	center_chunk := world.chunk_coord_of_world(center)
+	if s.residency.centered &&
+	   center_chunk == s.residency.center &&
+	   radius == s.residency.center_radius {
+		return
+	}
+	s.residency.center = center_chunk
+	s.residency.center_radius = radius
+	s.residency.centered = true
 
 	wanted := make(map[world.Chunk_Coord]bool, context.temp_allocator)
 	for dy in -i32(radius) ..= i32(radius) {

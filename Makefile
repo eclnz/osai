@@ -32,6 +32,7 @@ check:
 	$(ODIN) check $(SRC)/world -no-entry-point -vet
 	$(ODIN) check $(SRC)/sim -no-entry-point -vet
 	$(ODIN) check $(SRC)/render -no-entry-point -vet
+	$(ODIN) check $(SRC)/devtools -no-entry-point -vet
 
 fmt:
 	$(ODIN) fmt $(SRC) tests

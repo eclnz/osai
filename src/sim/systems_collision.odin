@@ -47,7 +47,7 @@ AXIS_Y :: 1
 // direction; on the y axis that means it landed on something.
 @(private = "file")
 sweep_axis :: proc(
-	s: ^State,
+	cur: ^world.Tile_Cursor,
 	axis: int,
 	probe: Vec2,
 	pos: ^Vec2,
@@ -66,7 +66,7 @@ sweep_axis :: proc(
 			tile: world.Tile_Coord
 			tile[axis] = a
 			tile[other] = o
-			if !world.is_solid_at(&s.terrain, tile) {
+			if !world.cursor_is_solid_at(cur, tile) {
 				continue
 			}
 			if moving_positive {
@@ -91,23 +91,31 @@ collision_system :: proc(s: ^State, dt: f32) {
 // *previous* y so that walking into a wall does not also read as landing on
 // the tile above it; Y is then resolved at the corrected x.
 terrain_collision :: proc(s: ^State) {
-	for &pos, i in s.spatial.position.dense {
-		e := s.spatial.position.owners[i]
+	// One cursor for the whole pass: consecutive entities are often in the
+	// same chunk, so it keeps paying off across the loop, not just within it.
+	cur := world.cursor(&s.terrain)
 
+	// Driven off `velocity`, not `position`: nothing without a velocity can
+	// collide with static terrain, and position is the least selective array
+	// in the game - every coin and every prop has one. At 1000 entities that
+	// is half the iterations discarded after two wasted lookups each.
+	for &vel, i in s.spatial.velocity.dense {
+		e := s.spatial.velocity.owners[i]
+
+		pos := ecs.get(&s.spatial.position, e)
+		if pos == nil {
+			continue
+		}
 		col := ecs.get(&s.spatial.collider, e)
 		if col == nil {
 			continue
 		}
-		vel := ecs.get(&s.spatial.velocity, e)
-		if vel == nil {
-			continue
-		}
-		prev := ecs.get_or(&s.spatial.previous_position, e, pos)
+		prev := ecs.get_or(&s.spatial.previous_position, e, pos^)
 
 		// X is resolved against the entity's *previous* y, so that walking into
 		// a wall does not also read as landing on the tile above it.
-		sweep_axis(s, AXIS_X, {pos.x, prev.y}, &pos, vel, col^)
-		landed := sweep_axis(s, AXIS_Y, pos, &pos, vel, col^)
+		sweep_axis(&cur, AXIS_X, {pos.x, prev.y}, pos, &vel, col^)
+		landed := sweep_axis(&cur, AXIS_Y, pos^, pos, &vel, col^)
 
 		if g := ecs.get(&s.spatial.grounded, e); g != nil {
 			// Standing still on a floor keeps `landed` false, so also probe
@@ -120,7 +128,7 @@ terrain_collision :: proc(s: ^State) {
 				lo, hi := tile_span(feet)
 				probe: for ty in lo.y ..= hi.y {
 					for tx in lo.x ..= hi.x {
-						if world.is_solid_at(&s.terrain, {tx, ty}) {
+						if world.cursor_is_solid_at(&cur, {tx, ty}) {
 							landed = true
 							break probe
 						}
@@ -133,6 +141,8 @@ terrain_collision :: proc(s: ^State) {
 }
 
 hazard_damage :: proc(s: ^State, dt: f32) {
+	cur := world.cursor(&s.terrain)
+
 	for _, i in s.status.health.dense {
 		e := s.status.health.owners[i]
 
@@ -147,7 +157,7 @@ hazard_damage :: proc(s: ^State, dt: f32) {
 		total: f32
 		for ty in lo.y ..= hi.y {
 			for tx in lo.x ..= hi.x {
-				hazard := world.tile_definitions[world.tile_at(&s.terrain, {tx, ty})].hazard
+				hazard := world.tile_definitions[world.cursor_tile_at(&cur, {tx, ty})].hazard
 				total = max(total, hazard)
 			}
 		}
