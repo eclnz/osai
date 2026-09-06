@@ -5,7 +5,7 @@ import "../serial"
 import "core:os"
 
 SAVE_MAGIC :: u32(0x4941534f) // "OSAI"
-SAVE_VERSION :: u32(2)
+SAVE_VERSION :: u32(6)
 
 Save_Error :: enum {
 	None,
@@ -40,6 +40,7 @@ save_to_file :: proc(s: ^State, path: string) -> Save_Error {
 	status_save(&w, &s.status)
 	presentation_save(&w, &s.presentation)
 	items_save(&w, &s.items)
+	combat_save(&w, &s.combat)
 
 	// pending work, so a save taken mid-carryover does not drop it
 	events_save(&w, &s.events)
@@ -111,6 +112,7 @@ load_body :: proc(s: ^State, r: ^serial.Reader) -> bool {
 	status_load(r, &s.status) or_return
 	presentation_load(r, &s.presentation) or_return
 	items_load(r, &s.items) or_return
+	combat_load(r, &s.combat) or_return
 
 	events_load(r, &s.events) or_return
 	residency_load(r, &s.residency) or_return

@@ -15,6 +15,25 @@ Grounded :: struct {
 	on_ground: bool,
 }
 
+// How terrain collision answers. Absence is the normal case - stop dead
+// against the tile face - so nothing that walks needs to say so. Presence
+// makes the contact elastic instead: the resolved axis reverses, scaled by
+// `restitution`, and the other axis is scraped by `friction`.
+Bounce :: struct {
+	restitution: f32, // fraction of speed kept across the contact
+	friction:    f32, // fraction of the tangential speed shed per contact
+	// Rolling friction, in world units per second squared, applied along the
+	// surface for as long as the entity is in contact with it. Per second and
+	// not per contact, because resting on a floor is a contact resolved on
+	// every single tick: a per-contact figure would make how fast a ball rolls
+	// to a halt a function of the tick rate.
+	rolling:     f32,
+	// Below this speed a reflection is not worth having: it would leave the
+	// entity jittering on a floor forever. Stop instead - and from then on the
+	// contact is a roll, not a bounce.
+	min_speed:   f32,
+}
+
 Spatial :: struct {
 	position:          ecs.Sparse_Set(Vec2),
 	previous_position: ecs.Sparse_Set(Vec2),
@@ -22,6 +41,7 @@ Spatial :: struct {
 	collider:          ecs.Sparse_Set(Collider),
 	grounded:          ecs.Sparse_Set(Grounded),
 	facing:            ecs.Sparse_Set(Facing),
+	bounce:            ecs.Sparse_Set(Bounce),
 }
 
 Spatial_Snapshot :: struct {
@@ -31,6 +51,7 @@ Spatial_Snapshot :: struct {
 	collider:          Collider,
 	grounded:          Grounded,
 	facing:            Facing,
+	bounce:            Bounce,
 }
 
 spatial_destroy :: proc(sp: ^Spatial) {
@@ -40,6 +61,7 @@ spatial_destroy :: proc(sp: ^Spatial) {
 	ecs.set_destroy(&sp.collider)
 	ecs.set_destroy(&sp.grounded)
 	ecs.set_destroy(&sp.facing)
+	ecs.set_destroy(&sp.bounce)
 }
 
 spatial_detach :: proc(sp: ^Spatial, e: ecs.Entity) {
@@ -49,6 +71,7 @@ spatial_detach :: proc(sp: ^Spatial, e: ecs.Entity) {
 	ecs.remove(&sp.collider, e)
 	ecs.remove(&sp.grounded, e)
 	ecs.remove(&sp.facing, e)
+	ecs.remove(&sp.bounce, e)
 }
 
 spatial_save :: proc(w: ^serial.Writer, sp: ^Spatial) {
@@ -58,6 +81,7 @@ spatial_save :: proc(w: ^serial.Writer, sp: ^Spatial) {
 	serial.put_set(w, &sp.collider)
 	serial.put_set(w, &sp.grounded)
 	serial.put_set(w, &sp.facing)
+	serial.put_set(w, &sp.bounce)
 }
 
 spatial_load :: proc(r: ^serial.Reader, sp: ^Spatial) -> bool {
@@ -67,6 +91,7 @@ spatial_load :: proc(r: ^serial.Reader, sp: ^Spatial) -> bool {
 	serial.take_set(r, &sp.collider) or_return
 	serial.take_set(r, &sp.grounded) or_return
 	serial.take_set(r, &sp.facing) or_return
+	serial.take_set(r, &sp.bounce) or_return
 	return true
 }
 
@@ -80,6 +105,7 @@ spatial_capture :: proc(sp: ^Spatial, e: ecs.Entity, snap: ^Spatial_Snapshot) ->
 	if v := ecs.get(&sp.collider, e); v != nil {snap.collider = v^;present += {.Collider}}
 	if v := ecs.get(&sp.grounded, e); v != nil {snap.grounded = v^;present += {.Grounded}}
 	if v := ecs.get(&sp.facing, e); v != nil {snap.facing = v^;present += {.Facing}}
+	if v := ecs.get(&sp.bounce, e); v != nil {snap.bounce = v^;present += {.Bounce}}
 	return present
 }
 
@@ -90,4 +116,5 @@ spatial_restore :: proc(sp: ^Spatial, e: ecs.Entity, snap: Spatial_Snapshot, pre
 	if .Collider in present {ecs.add(&sp.collider, e, snap.collider)}
 	if .Grounded in present {ecs.add(&sp.grounded, e, snap.grounded)}
 	if .Facing in present {ecs.add(&sp.facing, e, snap.facing)}
+	if .Bounce in present {ecs.add(&sp.bounce, e, snap.bounce)}
 }

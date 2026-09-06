@@ -23,8 +23,12 @@ terrain_save :: proc(w: ^serial.Writer, t: ^world.Terrain) {
 		if chunk.dirty {dirty_count += 1}
 	}
 
+	// Sorted, so two identical runs save identical bytes. See the note on
+	// `sorted_chunk_keys` in streaming.odin: map order is a function of the
+	// allocator, not of the data.
 	serial.put(w, dirty_count)
-	for _, chunk in t.chunks {
+	for coord in sorted_chunk_keys(t.chunks) {
+		chunk := t.chunks[coord]
 		if !chunk.dirty {
 			continue
 		}
@@ -56,7 +60,7 @@ terrain_regenerate_resident :: proc(
 	resident: map[world.Chunk_Coord]bool,
 	seed: u64,
 ) {
-	for coord in resident {
+	for coord in sorted_chunk_keys(resident) {
 		world.ensure_loaded(t, seed, coord)
 	}
 }

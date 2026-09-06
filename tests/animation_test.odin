@@ -100,7 +100,7 @@ damage_writes_an_animation_command_without_calling_animation :: proc(t: ^testing
 
 	e := sim.spawn_player(&s, {40, 0})
 	append(&s.events.damage, sim.Damage_Event{target = e, amount = 5})
-	sim.drain_damage(&s)
+	sim.drain_damage(&s, sim.FIXED_DT)
 
 	// The damage drain wrote a field. It did not animate anything, and the
 	// animation state is untouched until the animation system runs.

@@ -6,8 +6,8 @@ package world
 CHUNK_TILES :: 32
 CHUNK_AREA :: CHUNK_TILES * CHUNK_TILES
 
-Chunk_Coord :: [2]i32
-Tile_Coord :: [2]i32
+Chunk_Coord :: distinct [2]i32
+Tile_Coord :: distinct [2]i32
 
 Chunk :: struct {
 	coord: Chunk_Coord,
@@ -15,16 +15,48 @@ Chunk :: struct {
 	// Set by any write. Only dirty chunks are saved; the rest regenerate
 	// from the seed, which is why generation has to be deterministic.
 	dirty: bool,
+	// Whether any tile in here has a non-zero `hazard`. Derived from the
+	// tiles, never saved - `insert_chunk` recomputes it for every chunk that
+	// enters the terrain, whether it came from generation or from a file, so
+	// there is no path that can forget to.
+	//
+	// Hazard is rare: it exists so that a pass asking "is anything standing in
+	// lava" can answer no for a whole chunk instead of reading every tile
+	// under every entity. Same shape as `tile_definitions` - a question about
+	// terrain answered from terrain, not re-derived per entity per tick.
+	any_hazard: bool,
+}
+
+// Recomputed rather than maintained incrementally, because the only callers
+// are chunk insertion and the rare write that removes the last hazard tile.
+chunk_recompute_hazard :: proc(chunk: ^Chunk) {
+	chunk.any_hazard = false
+	for tile in chunk.tiles {
+		if tile_definitions[tile].hazard > 0 {
+			chunk.any_hazard = true
+			return
+		}
+	}
 }
 
 Terrain :: struct {
 	chunks: map[Chunk_Coord]^Chunk,
 	seed:   u64,
+	// Bumped by every tile write. Anything caching a derived answer about
+	// terrain - "is there a wall ahead of this walker" - stores the value it
+	// was computed at and recomputes when they differ. One counter for the
+	// whole terrain rather than one per chunk: tile writes are rare, and
+	// making every cache recompute for one tick is cheaper than tracking
+	// which of them cared.
+	//
+	// Starts at one, so that zero is free to mean "never computed".
+	edits:  u32,
 }
 
 terrain_init :: proc(t: ^Terrain, seed: u64) {
 	t.chunks = make(map[Chunk_Coord]^Chunk)
 	t.seed = seed
+	t.edits = 1
 }
 
 terrain_destroy :: proc(t: ^Terrain) {
@@ -37,22 +69,31 @@ terrain_destroy :: proc(t: ^Terrain) {
 
 // Floor division, not truncation: -1 / 32 must be -1, not 0, or the world
 // mirrors itself around the origin.
+//
+// A chunk is a power of two tiles across, which makes both of these one
+// instruction. For a signed integer `>>` is an arithmetic shift, so `a >> 5`
+// *is* floor division by 32 - it rounds toward negative infinity, which is the
+// behaviour we had to write a branch for when the divisor was a runtime value.
+// `a & 31` is the matching floor modulo, non-negative for negative `a` for the
+// same reason. The general versions did a division, a modulo and two branches
+// per call, and these sit under `cursor_tile_at`, which is the innermost call
+// of terrain collision, hazard damage, AI probing and mining.
+//
+// The assert is what keeps the two constants honest: change CHUNK_TILES to
+// something that is not 1 << CHUNK_SHIFT and this stops compiling rather than
+// silently mirroring the world again.
+CHUNK_SHIFT :: 5
+CHUNK_MASK :: CHUNK_TILES - 1
+#assert(CHUNK_TILES == 1 << CHUNK_SHIFT)
+
 @(private)
-floor_div :: proc(a, b: i32) -> i32 {
-	q := a / b
-	if (a % b != 0) && ((a < 0) != (b < 0)) {
-		q -= 1
-	}
-	return q
+floor_div_chunk :: #force_inline proc(a: i32) -> i32 {
+	return a >> CHUNK_SHIFT
 }
 
 @(private)
-floor_mod :: proc(a, b: i32) -> i32 {
-	m := a % b
-	if m != 0 && ((m < 0) != (b < 0)) {
-		m += b
-	}
-	return m
+floor_mod_chunk :: #force_inline proc(a: i32) -> i32 {
+	return a & CHUNK_MASK
 }
 
 tile_coord_of_world :: proc(p: Vec2) -> Tile_Coord {
@@ -66,7 +107,7 @@ tile_coord_of_world :: proc(p: Vec2) -> Tile_Coord {
 }
 
 chunk_coord_of_tile :: proc(tc: Tile_Coord) -> Chunk_Coord {
-	return {floor_div(tc.x, CHUNK_TILES), floor_div(tc.y, CHUNK_TILES)}
+	return {floor_div_chunk(tc.x), floor_div_chunk(tc.y)}
 }
 
 chunk_coord_of_world :: proc(p: Vec2) -> Chunk_Coord {
@@ -75,8 +116,8 @@ chunk_coord_of_world :: proc(p: Vec2) -> Chunk_Coord {
 
 @(private)
 tile_index_in_chunk :: proc(tc: Tile_Coord) -> int {
-	lx := floor_mod(tc.x, CHUNK_TILES)
-	ly := floor_mod(tc.y, CHUNK_TILES)
+	lx := floor_mod_chunk(tc.x)
+	ly := floor_mod_chunk(tc.y)
 	return int(ly) * CHUNK_TILES + int(lx)
 }
 
@@ -107,8 +148,20 @@ set_tile :: proc(t: ^Terrain, tc: Tile_Coord, tile: Tile) -> bool {
 	if chunk == nil {
 		return false
 	}
-	chunk.tiles[tile_index_in_chunk(tc)] = tile
+	idx := tile_index_in_chunk(tc)
+	was_hazard := tile_definitions[chunk.tiles[idx]].hazard > 0
+	chunk.tiles[idx] = tile
 	chunk.dirty = true
+	t.edits += 1
+
+	// Kept exact rather than conservative. Adding hazard is a flag set;
+	// removing the last one is the only case that has to look at the rest of
+	// the chunk, and it is rare enough to pay for.
+	if tile_definitions[tile].hazard > 0 {
+		chunk.any_hazard = true
+	} else if was_hazard {
+		chunk_recompute_hazard(chunk)
+	}
 	return true
 }
 
@@ -122,6 +175,9 @@ insert_chunk :: proc(t: ^Terrain, chunk: ^Chunk) {
 	if existing, ok := t.chunks[chunk.coord]; ok {
 		free(existing)
 	}
+	// Here rather than in each producer: generation and save-loading both
+	// arrive through this door, so deriving it once means neither can forget.
+	chunk_recompute_hazard(chunk)
 	t.chunks[chunk.coord] = chunk
 }
 
@@ -159,4 +215,46 @@ discard_if_clean :: proc(t: ^Terrain, cc: Chunk_Coord) -> bool {
 	remove_chunk(t, cc)
 	free(chunk)
 	return true
+}
+
+// A tile query that remembers the chunk it last resolved.
+Tile_Cursor :: struct {
+	terrain: ^Terrain,
+	cc:      Chunk_Coord,
+	chunk:   ^Chunk,
+	primed:  bool,
+}
+
+cursor :: proc(t: ^Terrain) -> Tile_Cursor {
+	return Tile_Cursor{terrain = t}
+}
+
+cursor_tile_at :: proc(c: ^Tile_Cursor, tc: Tile_Coord) -> Tile {
+	cc := chunk_coord_of_tile(tc)
+	if !c.primed || cc != c.cc {
+		c.cc = cc
+		c.chunk = get_chunk(c.terrain, cc)
+		c.primed = true
+	}
+	if c.chunk == nil {
+		return .Empty
+	}
+	return c.chunk.tiles[tile_index_in_chunk(tc)]
+}
+
+cursor_is_solid_at :: proc(c: ^Tile_Cursor, tc: Tile_Coord) -> bool {
+	return is_solid_tile(cursor_tile_at(c, tc))
+}
+
+// Whether the chunk containing `tc` holds any hazard at all. Resolves through
+// the same cached chunk pointer as a tile read, so asking this first and only
+// then reading tiles costs nothing extra when the answer is yes.
+cursor_chunk_has_hazard :: proc(c: ^Tile_Cursor, tc: Tile_Coord) -> bool {
+	cc := chunk_coord_of_tile(tc)
+	if !c.primed || cc != c.cc {
+		c.cc = cc
+		c.chunk = get_chunk(c.terrain, cc)
+		c.primed = true
+	}
+	return c.chunk != nil && c.chunk.any_hazard
 }

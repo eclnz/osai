@@ -19,16 +19,23 @@ Animation_Id :: enum u8 {
 	Death,
 }
 
+// Ordered widest-first, and `frame` is a u8 rather than an int.
+//
+// No animation has more than a handful of frames - the longest in the table
+// below is five - so the frame index never needed eight bytes, and an int
+// there forced the whole struct to eight-byte alignment. Laid out this way it
+// is 12 bytes instead of 24, which halves the array `animation_system` streams
+// once per entity per frame.
 Animation_State :: struct {
-	current:          Animation_Id,
 	elapsed:          f32,
-	frame:            int,
-
-	// A command outranks derivation while it is unexpired. See animation.odin.
-	commanded:        Animation_Id,
-	command_priority: u8,
+	// A command outranks derivation while it is unexpired.
 	command_expiry:   f32,
+	current:          Animation_Id,
+	commanded:        Animation_Id,
+	frame:            u8,
+	command_priority: u8,
 }
+#assert(size_of(Animation_State) == 12)
 
 Animation_Definition :: struct {
 	frames:     int,
@@ -36,7 +43,8 @@ Animation_Definition :: struct {
 	loops:      bool,
 }
 
-// Indexed by type ID, one entry per type. Not saved.
+// Indexed by type ID, one entry per type. Not saved - see entity_definitions.
+@(rodata)
 animation_definitions := [Animation_Id]Animation_Definition {
 	.Idle  = {frames = 4, frame_time = 0.20, loops = true},
 	.Run   = {frames = 6, frame_time = 0.08, loops = true},
@@ -83,13 +91,16 @@ advance_frame :: proc(anim: ^Animation_State, dt: f32) -> (completed: bool) {
 		return false
 	}
 
+	// `advanced` stays an int: a non-looping animation held past its end keeps
+	// accumulating, and it is only narrowed once it has been bounded by the
+	// frame count, which the table keeps well inside a byte.
 	advanced := int(anim.elapsed / def.frame_time)
 	if def.loops {
-		anim.frame = advanced % max(1, def.frames)
+		anim.frame = u8(advanced % max(1, def.frames))
 		return false
 	}
 
-	anim.frame = min(advanced, def.frames - 1)
+	anim.frame = u8(min(advanced, def.frames - 1))
 	return advanced >= def.frames
 }
 

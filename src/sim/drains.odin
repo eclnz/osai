@@ -9,9 +9,12 @@ import "../ecs"
 //
 // Everything in this file consumes a queue. A pass that reads component arrays
 // without draining anything belongs in a systems_*.odin file instead.
+//
+// They take a `dt` they do not use, because everything in `SCHEDULE` has the
+// same shape - the same reason `facing_system` and `consequences_system` do.
 
 // The only writer to the health array.
-drain_damage :: proc(s: ^State) {
+drain_damage :: proc(s: ^State, dt: f32) {
 	for event in s.events.damage {
 		health := ecs.get(&s.status.health, event.target)
 		if health == nil {
@@ -35,7 +38,32 @@ drain_damage :: proc(s: ^State) {
 	clear(&s.events.damage)
 }
 
-drain_pickups :: proc(s: ^State) {
+// What a hit costs. Runs before `drain_damage`, so a hit landed this tick is
+// paid for in the same tick rather than the next one.
+//
+// The damage still goes through the damage queue rather than being written
+// here: health has exactly one writer, and a fireball is not a reason to make
+// it two. What this drain owns is the rest of the consequence - the end of the
+// projectile, and whatever an impact grows to mean later.
+drain_hits :: proc(s: ^State, dt: f32) {
+	for event in s.events.hits {
+		// Two targets can be reached in one tick by one projectile only if it
+		// was already spent by an earlier event; a stale handle is the normal
+		// way to find that out, not an error.
+		if !ecs.entity_is_alive(&s.entities, event.projectile) {
+			continue
+		}
+		append(&s.events.damage, Damage_Event{
+			target = event.target,
+			amount = event.damage,
+			source = .Projectile,
+		})
+		entity_destroy(s, event.projectile)
+	}
+	clear(&s.events.hits)
+}
+
+drain_pickups :: proc(s: ^State, dt: f32) {
 	for event in s.events.pickups {
 		// Two collectors can overlap the same item in one step; the first
 		// one destroys it and the second finds a stale handle.
@@ -67,7 +95,7 @@ drain_pickups :: proc(s: ^State) {
 	clear(&s.events.pickups)
 }
 
-drain_spawns :: proc(s: ^State) {
+drain_spawns :: proc(s: ^State, dt: f32) {
 	// Spawning appends nothing to this queue, but taking a copy of the length
 	// first keeps that from being load-bearing.
 	count := len(s.events.spawns)

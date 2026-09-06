@@ -12,6 +12,10 @@ import "../world"
 // it: the input system writes the player's intent instead, and neither knows
 // about the other.
 ai_system :: proc(s: ^State, dt: f32) {
+	// Both probes below are tile queries, and a walker's two probes are almost
+	// always in the same chunk as each other and as the previous walker's.
+	cur := world.cursor(&s.terrain)
+
 	for &ai, i in s.control.ai.dense {
 		e := s.control.ai.owners[i]
 		intent := ecs.get(&s.control.intent, e)
@@ -36,9 +40,23 @@ ai_system :: proc(s: ^State, dt: f32) {
 				ahead_tile := world.tile_coord_of_world({ahead_x, pos.y + col.size.y * 0.5})
 				floor_tile := world.tile_coord_of_world({ahead_x, foot_y})
 
-				blocked := world.is_solid_at(&s.terrain, ahead_tile)
-				no_floor := !world.is_solid_at(&s.terrain, floor_tile)
-				if blocked || no_floor {
+				// Two integer compares against the cached key stand in for
+				// two chunk lookups. A walker spends about twenty ticks inside
+				// the same pair of probe tiles, and mining bumps `edits`, so a
+				// cached answer cannot outlive the terrain it describes.
+				fresh :=
+					ai.probe_edits == s.terrain.edits &&
+					ai.probe_ahead == ahead_tile &&
+					ai.probe_floor == floor_tile
+				if !fresh {
+					blocked := world.cursor_is_solid_at(&cur, ahead_tile)
+					no_floor := !world.cursor_is_solid_at(&cur, floor_tile)
+					ai.turn = blocked || no_floor
+					ai.probe_edits = s.terrain.edits
+					ai.probe_ahead = ahead_tile
+					ai.probe_floor = floor_tile
+				}
+				if ai.turn {
 					ai.facing = -ai.facing
 				}
 			}

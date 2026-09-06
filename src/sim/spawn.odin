@@ -24,6 +24,14 @@ spawn :: proc(s: ^State, req: Spawn_Request) -> ecs.Entity {
 		return spawn_walker(s, req.position)
 	case .Coin:
 		return spawn_coin(s, req.position)
+	case .Rock:
+		return spawn_rock(s, req.position)
+	case .Fireball:
+		// A spawn request carries a position and nothing else, so one arriving
+		// from generation or from a save gets a fireball that simply drops.
+		// Anything that means to *shoot* one calls `spawn_fireball` directly,
+		// because the velocity is the whole point.
+		return spawn_fireball(s, req.position, {}, ecs.NIL)
 	}
 	return ecs.NIL
 }
@@ -38,6 +46,8 @@ spawn_player :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 	ecs.add(&s.status.health, e, Health{current = entity_definitions[.Player].max_health})
 	ecs.add(&s.presentation.animation, e, Animation_State{})
 	ecs.add(&s.items.inventory, e, Inventory{})
+	ecs.add(&s.combat.weapon, e, Weapon{})
+	ecs.add(&s.control.digger, e, Digger{reach = 3 * TILE_SIZE, speed = 1})
 	s.player = e
 	return e
 }
@@ -61,5 +71,36 @@ spawn_walker :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 spawn_coin :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 	e := spawn_base(s, .Coin, position)
 	ecs.add(&s.items.item, e, Item_Slot{item = .Coin, count = 1})
+	return e
+}
+
+// What a broken block leaves behind. Identical to a coin but for the row it
+// comes from and the item in the slot - which is the point: neither the mining
+// system nor the pickup drain has a word to say about rocks specifically.
+spawn_rock :: proc(s: ^State, position: Vec2) -> ecs.Entity {
+	e := spawn_base(s, .Rock, position)
+	ecs.add(&s.items.item, e, Item_Slot{item = .Rock, count = 1})
+	return e
+}
+
+// What a fireball is, expressed entirely in components: a velocity so it
+// moves, a projectile so it expires and deals damage, and a bounce so terrain
+// contact reflects it instead of stopping it. No `intent`, `movement` or
+// `grounded` - it is not steered, it does not walk, and it never stands on
+// anything.
+spawn_fireball :: proc(s: ^State, position: Vec2, velocity: Vec2, owner: ecs.Entity) -> ecs.Entity {
+	e := spawn_base(s, .Fireball, position)
+	ecs.add(&s.spatial.velocity, e, velocity)
+	ecs.add(&s.spatial.bounce, e, Bounce{
+		restitution = 0.6,
+		friction    = 0.15,
+		rolling     = 240,
+		min_speed   = 30,
+	})
+	ecs.add(&s.combat.projectile, e, Projectile{
+		owner  = owner,
+		damage = FIREBALL_DAMAGE,
+		life   = FIREBALL_LIFETIME,
+	})
 	return e
 }

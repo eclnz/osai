@@ -29,7 +29,7 @@ draw_debug :: proc(r: ^Renderer, s: ^sim.State, alpha: f32, steps: int) {
 		fmt.tprintf("resident %v   dormant chunks %v", len(s.residency.resident), len(s.residency.dormant)),
 		fmt.tprintf("player %.0f, %.0f   hp %.0f   coins %v",
 			pos.x, pos.y, health != nil ? health.current : 0, coins),
-		"arrows/wasd move, space jump, F5 save, F9 load, R respawn",
+		"arrows/wasd move, space jump, LMB dig, RMB/F fire, F5 save, F9 load, R respawn",
 	}
 
 	rl.DrawRectangle(0, 0, 420, i32(len(lines)) * 18 + 12, {0, 0, 0, 150})

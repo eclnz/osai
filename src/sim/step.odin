@@ -10,21 +10,47 @@ FIXED_DT :: f32(1.0) / 60.0
 // more steps, and the game spirals instead of slowing down.
 MAX_CATCHUP_STEPS :: 5
 
+// A system is a name and a procedure over the whole state; the step is the
+// ordered list of them, as data rather than as a sequence of calls.
+//
+// This is here because the profiler used to be a hand-written copy of the call
+// sequence below, with a stopwatch around each line, and said so in its own
+// comment: "mirroring means it can drift from step.odin". It cannot now -
+// devtools walks this same array. Adding a system is one row, and it is
+// profiled the moment it is added.
+System :: struct {
+	name: string,
+	run:  proc(s: ^State, dt: f32),
+}
+
+// The order is the frame order from the spec. Terrain collision, hazard damage
+// and the three broadphase passes were one `collision_system` call; they are
+// separate rows because they are separate costs, and the grid they share now
+// lives on `State`.
+SCHEDULE :: [?]System {
+	{"ai", ai_system},
+	{"weapon", weapon_system},
+	{"mining", mining_system},
+	{"movement", movement_system},
+	{"projectile", projectile_system},
+	{"integration", integration_system},
+	{"terrain_collision", terrain_collision},
+	{"hazard_damage", hazard_damage},
+	{"broadphase", broadphase_system},
+	{"entity_collision", entity_collision},
+	{"projectile_collision", projectile_collision},
+	{"facing", facing_system},
+	{"drain_hits", drain_hits},
+	{"drain_damage", drain_damage},
+	{"drain_pickups", drain_pickups},
+	{"drain_spawns", drain_spawns},
+	{"consequences", consequences_system},
+}
+
 fixed_step :: proc(s: ^State) {
-	dt := FIXED_DT
-
-	ai_system(s, dt)
-	movement_system(s, dt)
-	integration_system(s, dt)
-	collision_system(s, dt)
-	facing_system(s, dt)
-
-	drain_damage(s)
-	drain_pickups(s)
-	drain_spawns(s)
-
-	consequences_system(s, dt)
-
+	for sys in SCHEDULE {
+		sys.run(s, FIXED_DT)
+	}
 	s.tick += 1
 }
 

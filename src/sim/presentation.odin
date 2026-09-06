@@ -20,6 +20,7 @@ Texture_Id :: enum u8 {
 	Player,
 	Creature,
 	Item,
+	Projectile,
 }
 
 Appearance :: struct {

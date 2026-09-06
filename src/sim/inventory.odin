@@ -24,7 +24,13 @@ Item_Definition :: struct {
 	space_cost: u8,
 }
 
-// Indexed by type ID. Not saved.
+// Indexed by type ID. Not saved - see entity_definitions.
+//
+// The attribute has no effect on this one in practice: `name` is a string, and
+// the relocation its pointer needs keeps the table in writable data. Kept for
+// the intent, and so that it lands in read-only memory the day the tables are
+// loaded from disk and the name stops being a literal.
+@(rodata)
 item_definitions := [Item_Id]Item_Definition {
 	.None = {name = "", stackable = false, max_stack = 0, space_cost = 0},
 	.Coin = {name = "coin", stackable = true, max_stack = 999, space_cost = 1},

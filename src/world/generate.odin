@@ -6,10 +6,15 @@ package world
 //
 // Ordered passes: layout -> terrain detail -> populate -> validate.
 
+// Not every kind is something generation emits: `Fireball` is only ever
+// spawned by the simulation. The enum is the shared vocabulary for "which sort
+// of thing", and the populate pass simply never rolls one.
 Spawn_Kind :: enum u8 {
 	Player,
 	Walker,
 	Coin,
+	Fireball,
+	Rock,
 }
 
 Spawn_Request :: struct {

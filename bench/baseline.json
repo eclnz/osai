@@ -1,0 +1,21 @@
+{
+  "tick": 65.12,
+  "terrain_collision": 21.963,
+  "ai": 10.553,
+  "broadphase": 9.204,
+  "hazard_damage": 9.108,
+  "movement": 3.407,
+  "integration": 3.339,
+  "animation": 2.671,
+  "facing": 1.44,
+  "consequences": 0.347,
+  "entity_collision": 0.334,
+  "weapon": 0.042,
+  "projectile": 0.04,
+  "drain_hits": 0.04,
+  "drain_pickups": 0.04,
+  "streaming": 0.038,
+  "drain_damage": 0.038,
+  "projectile_collision": 0.037,
+  "drain_spawns": 0.031
+}

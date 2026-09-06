@@ -45,6 +45,17 @@ Entity_Definition :: struct {
 }
 
 // Indexed by kind, one entry per kind.
+//
+// `@(rodata)` rather than a plain global: these tables are the game, not the
+// state - never saved, never written at runtime - and this puts them in
+// read-only memory to say so. It does not reject a write at compile time; what
+// it buys is that an accidental one faults immediately instead of quietly
+// changing the game, and that the optimiser knows nothing can alias and
+// change a row underneath it.
+//
+// The table stays addressable, which matters: `movement_system` reads the row
+// by pointer rather than copying 24 bytes onto the stack per entity per tick.
+@(rodata)
 entity_definitions := [Entity_Kind]Entity_Definition {
 	.Player = {
 		max_health = 100,
@@ -81,6 +92,23 @@ entity_definitions := [Entity_Kind]Entity_Definition {
 		texture  = .Item,
 		tint     = {230, 196, 84, 255},
 		depth    = 4,
+	},
+	.Rock = {
+		collider = {8, 8},
+		texture  = .Item,
+		tint     = {150, 148, 142, 255},
+		depth    = 4,
+	},
+	// A fireball has no `move_speed` or `jump_speed`: it is not driven by
+	// intent, so `movement_system` never sees it. What it does need from this
+	// row is gravity, which `projectile_system` reads from here rather than
+	// carrying a private copy on every shot in flight.
+	.Fireball = {
+		movement = {gravity = 520, max_fall_speed = 640},
+		collider = {6, 6},
+		texture  = .Projectile,
+		tint     = {240, 148, 56, 255},
+		depth    = 8,
 	},
 }
 

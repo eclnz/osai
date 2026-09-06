@@ -14,7 +14,24 @@ import rl "vendor:raylib"
 // the interpolated position even by accident.
 
 Renderer :: struct {
-	render_position: ecs.Sparse_Set(sim.Vec2),
+	// Parallel to `sim.State.spatial.position.dense`: row i is the
+	// interpolated position of whoever owns position.dense[i].
+	//
+	// This was a sparse set, which cost more than it looks. `set_clear` writes
+	// NO_INDEX across the whole sparse table, and that table is sized by the
+	// highest entity slot ever allocated - and streaming never frees a slot,
+	// because handles to dormant entities must stay valid. So the per-frame
+	// clear grew with how far the player had walked, at constant entity count,
+	// and never shrank.
+	//
+	// Nothing needed the lookup anyway: this is built in dense order and read
+	// back in dense order. The one by-entity read, the camera's target in
+	// `follow`, is a single `dense_index` call.
+	//
+	// Valid only between an `interpolate` and the next structural change to
+	// the position array - which is the whole of the render phase, since
+	// `sim` has finished stepping by then.
+	render_position: [dynamic]sim.Vec2,
 	textures:        [sim.Texture_Id]rl.Texture2D,
 	camera:          rl.Camera2D,
 	draw_list:       [dynamic]Draw_Item,
@@ -61,7 +78,7 @@ renderer_init :: proc(r: ^Renderer, zoom: f32 = 2.5) {
 }
 
 renderer_destroy :: proc(r: ^Renderer) {
-	ecs.set_destroy(&r.render_position)
+	delete(r.render_position)
 	delete(r.draw_list)
 	for texture in r.textures {
 		if texture.id != 0 {
@@ -76,17 +93,22 @@ renderer_destroy :: proc(r: ^Renderer) {
 interpolate :: proc(r: ^Renderer, s: ^sim.State, alpha: f32) {
 	// Rebuilt from scratch each frame, so entities that were destroyed or
 	// streamed out simply do not reappear. Nothing has to remove them.
-	ecs.set_clear(&r.render_position)
+	resize(&r.render_position, len(s.spatial.position.dense))
 
 	for pos, i in s.spatial.position.dense {
 		e := s.spatial.position.owners[i]
 		prev := ecs.get_or(&s.spatial.previous_position, e, pos)
-		ecs.add(&r.render_position, e, prev + (pos - prev) * alpha)
+		r.render_position[i] = prev + (pos - prev) * alpha
 	}
 }
 
 follow :: proc(r: ^Renderer, s: ^sim.State, smoothing: f32 = 1) {
-	target := ecs.get_or(&r.render_position, s.player, sim.Vec2{})
+	// A player with no position leaves the target at the origin, which is what
+	// the sparse-set lookup this replaces fell back to.
+	target := sim.Vec2{}
+	if d, ok := ecs.dense_index(&s.spatial.position, s.player); ok {
+		target = r.render_position[d]
+	}
 	if smoothing >= 1 {
 		r.camera.target = target
 	} else {
@@ -103,8 +125,33 @@ draw :: proc(r: ^Renderer, s: ^sim.State) {
 
 	rl.BeginMode2D(r.camera)
 	draw_terrain(r, s)
+	draw_dig_target(r, s)
 	draw_entities(r, s)
 	rl.EndMode2D()
+}
+
+// The block the player is working on, and how far through it they are. Read
+// straight off the digger component - the simulation says what it is doing and
+// this draws it, which is the same direction everything else here runs in.
+draw_dig_target :: proc(r: ^Renderer, s: ^sim.State) {
+	digger := ecs.get(&s.control.digger, s.player)
+	if digger == nil || digger.progress <= 0 {
+		return
+	}
+	tile := world.tile_at(&s.terrain, digger.target)
+	hardness := world.tile_definitions[tile].hardness
+	if hardness <= 0 {
+		return
+	}
+
+	x := i32(digger.target.x) * world.TILE_SIZE
+	y := i32(digger.target.y) * world.TILE_SIZE
+	rl.DrawRectangleLines(x, y, world.TILE_SIZE, world.TILE_SIZE, {240, 240, 240, 200})
+
+	// A bar across the bottom of the tile, because a crack overlay needs art
+	// and this needs none.
+	filled := i32(f32(world.TILE_SIZE) * min(digger.progress / hardness, 1))
+	rl.DrawRectangle(x, y + world.TILE_SIZE - 3, filled, 3, {240, 220, 120, 220})
 }
 
 // Terrain is drawn straight from the tile arrays, one quad per visible tile.
@@ -116,9 +163,16 @@ draw_terrain :: proc(r: ^Renderer, s: ^sim.State) {
 	lo := world.tile_coord_of_world({view.x, view.y})
 	hi := world.tile_coord_of_world({view.x + view.width, view.y + view.height})
 
+	// One cursor for the whole scan. `tile_at` resolves the chunk from scratch
+	// for every tile - a map lookup each - where the cursor keeps the last one
+	// it resolved. The inner loop runs along x, so it stays inside the same
+	// chunk for 32 tiles at a time. Every other tile-scanning loop in the
+	// codebase already does this; this one was the exception.
+	cur := world.cursor(&s.terrain)
+
 	for ty in lo.y ..= hi.y {
 		for tx in lo.x ..= hi.x {
-			tile := world.tile_at(&s.terrain, {tx, ty})
+			tile := world.cursor_tile_at(&cur, {tx, ty})
 			if tile == .Empty {
 				continue
 			}
@@ -137,8 +191,9 @@ draw_terrain :: proc(r: ^Renderer, s: ^sim.State) {
 draw_entities :: proc(r: ^Renderer, s: ^sim.State) {
 	clear(&r.draw_list)
 
-	for pos, i in r.render_position.dense {
-		e := r.render_position.owners[i]
+	// Row i belongs to whoever owns position.dense[i] - see `render_position`.
+	for pos, i in r.render_position {
+		e := s.spatial.position.owners[i]
 
 		appearance := ecs.get(&s.presentation.appearance, e)
 		if appearance == nil {
@@ -155,7 +210,7 @@ draw_entities :: proc(r: ^Renderer, s: ^sim.State) {
 			size     = collider.size,
 			animated = anim != nil,
 			row      = anim != nil ? int(anim.current) : 0,
-			frame    = anim != nil ? anim.frame : 0,
+			frame    = anim != nil ? int(anim.frame) : 0,
 			flip_x   = facing < 0,
 			tint     = rl.Color(appearance.tint),
 		})
@@ -195,6 +250,17 @@ draw_placeholder :: proc(item: Draw_Item) {
 	marker_x := i32(item.position.x) + (item.flip_x ? i32(item.size.x) - 3 : 1)
 	rl.DrawRectangle(marker_x, i32(item.position.y) + 1, 2, 2 + i32(item.frame), {20, 20, 24, 255})
 	rl.DrawRectangle(i32(item.position.x) + 1, i32(item.position.y + item.size.y) - 3, 2 + i32(item.row), 2, {20, 20, 24, 255})
+}
+
+// Where a screen pixel lands in the world. The one place that conversion
+// happens, so that everything downstream - aiming, picking, debug probes -
+// talks in world units.
+screen_to_world :: proc(r: ^Renderer, screen: sim.Vec2) -> sim.Vec2 {
+	return rl.GetScreenToWorld2D(screen, r.camera)
+}
+
+mouse_world :: proc(r: ^Renderer) -> sim.Vec2 {
+	return screen_to_world(r, rl.GetMousePosition())
 }
 
 visible_world_rect :: proc(r: ^Renderer) -> rl.Rectangle {
