@@ -37,22 +37,31 @@ terrain_destroy :: proc(t: ^Terrain) {
 
 // Floor division, not truncation: -1 / 32 must be -1, not 0, or the world
 // mirrors itself around the origin.
+//
+// A chunk is a power of two tiles across, which makes both of these one
+// instruction. For a signed integer `>>` is an arithmetic shift, so `a >> 5`
+// *is* floor division by 32 - it rounds toward negative infinity, which is the
+// behaviour we had to write a branch for when the divisor was a runtime value.
+// `a & 31` is the matching floor modulo, non-negative for negative `a` for the
+// same reason. The general versions did a division, a modulo and two branches
+// per call, and these sit under `cursor_tile_at`, which is the innermost call
+// of terrain collision, hazard damage, AI probing and mining.
+//
+// The assert is what keeps the two constants honest: change CHUNK_TILES to
+// something that is not 1 << CHUNK_SHIFT and this stops compiling rather than
+// silently mirroring the world again.
+CHUNK_SHIFT :: 5
+CHUNK_MASK :: CHUNK_TILES - 1
+#assert(CHUNK_TILES == 1 << CHUNK_SHIFT)
+
 @(private)
-floor_div :: proc(a, b: i32) -> i32 {
-	q := a / b
-	if (a % b != 0) && ((a < 0) != (b < 0)) {
-		q -= 1
-	}
-	return q
+floor_div_chunk :: #force_inline proc(a: i32) -> i32 {
+	return a >> CHUNK_SHIFT
 }
 
 @(private)
-floor_mod :: proc(a, b: i32) -> i32 {
-	m := a % b
-	if m != 0 && ((m < 0) != (b < 0)) {
-		m += b
-	}
-	return m
+floor_mod_chunk :: #force_inline proc(a: i32) -> i32 {
+	return a & CHUNK_MASK
 }
 
 tile_coord_of_world :: proc(p: Vec2) -> Tile_Coord {
@@ -66,7 +75,7 @@ tile_coord_of_world :: proc(p: Vec2) -> Tile_Coord {
 }
 
 chunk_coord_of_tile :: proc(tc: Tile_Coord) -> Chunk_Coord {
-	return {floor_div(tc.x, CHUNK_TILES), floor_div(tc.y, CHUNK_TILES)}
+	return {floor_div_chunk(tc.x), floor_div_chunk(tc.y)}
 }
 
 chunk_coord_of_world :: proc(p: Vec2) -> Chunk_Coord {
@@ -75,8 +84,8 @@ chunk_coord_of_world :: proc(p: Vec2) -> Chunk_Coord {
 
 @(private)
 tile_index_in_chunk :: proc(tc: Tile_Coord) -> int {
-	lx := floor_mod(tc.x, CHUNK_TILES)
-	ly := floor_mod(tc.y, CHUNK_TILES)
+	lx := floor_mod_chunk(tc.x)
+	ly := floor_mod_chunk(tc.y)
 	return int(ly) * CHUNK_TILES + int(lx)
 }
 
