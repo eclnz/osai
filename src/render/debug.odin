@@ -9,8 +9,8 @@ import rl "vendor:raylib"
 // smallest version of that: it reads state, draws text, and owns nothing.
 
 draw_debug :: proc(r: ^Renderer, s: ^sim.State, alpha: f32, steps: int) {
-	health := ecs.get(&s.health, s.player)
-	inv := ecs.get(&s.inventory, s.player)
+	health := ecs.get(&s.status.health, s.player)
+	inv := ecs.get(&s.items.inventory, s.player)
 
 	coins := 0
 	if inv != nil {
@@ -21,12 +21,12 @@ draw_debug :: proc(r: ^Renderer, s: ^sim.State, alpha: f32, steps: int) {
 		}
 	}
 
-	pos := ecs.get_or(&s.position, s.player, sim.Vec2{})
+	pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})
 
 	lines := [?]string {
 		fmt.tprintf("%v fps   alpha %.2f   steps %v", rl.GetFPS(), alpha, steps),
 		fmt.tprintf("tick %v   entities %v   chunks %v", s.tick, s.entities.live_count, len(s.terrain.chunks)),
-		fmt.tprintf("resident %v   dormant chunks %v", len(s.resident), len(s.dormant)),
+		fmt.tprintf("resident %v   dormant chunks %v", len(s.residency.resident), len(s.residency.dormant)),
 		fmt.tprintf("player %.0f, %.0f   hp %.0f   coins %v",
 			pos.x, pos.y, health != nil ? health.current : 0, coins),
 		"arrows/wasd move, space jump, F5 save, F9 load, R respawn",

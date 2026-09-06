@@ -62,7 +62,7 @@ generation_is_seeded_and_order_independent :: proc(t: ^testing.T) {
 	defer free(c)
 	testing.expect(t, a.tiles != c.tiles, "a different seed should produce a different chunk")
 
-	// Chunks are pure functions of (seed, coord): generating neighbours in a
+	// Residency are pure functions of (seed, coord): generating neighbours in a
 	// different order must not change the result, or the world would depend
 	// on how the player wandered.
 	before := world.generate_chunk(77, {0, 0})

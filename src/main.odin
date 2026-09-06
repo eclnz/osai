@@ -8,6 +8,7 @@ import "world"
 import "core:fmt"
 import "core:os"
 import "core:strconv"
+import "core:time"
 import "core:strings"
 import rl "vendor:raylib"
 
@@ -22,6 +23,9 @@ Options :: struct {
 	// the window is closed.
 	frames:     int,
 	screenshot: string,
+	// Drop the vsync hint so the frame rate reports actual capacity rather
+	// than the display's refresh rate. Measurement only - not a play mode.
+	novsync: bool,
 }
 
 SAVE_PATH :: "save.bin"
@@ -64,7 +68,11 @@ respawn_player :: proc(s: ^sim.State) {
 // ------------------------------------------------------------------- loop
 
 run_windowed :: proc(s: ^sim.State, opt: Options) {
-	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
+	flags := rl.ConfigFlags{.WINDOW_RESIZABLE}
+	if !opt.novsync {
+		flags += {.VSYNC_HINT}
+	}
+	rl.SetConfigFlags(flags)
 	rl.InitWindow(opt.width, opt.height, "osai")
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(0) // vsync paces us; the fixed step handles the rest
@@ -83,6 +91,13 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 	alpha := f32(0)
 	frame := 0
 
+	// Frame *work* time, measured up to EndDrawing and so excluding the
+	// present. On macOS the compositor paces presentation to the display
+	// whatever the vsync hint says, which makes the FPS counter a reading of
+	// the panel rather than of the game. This is the number that is not.
+	work_total: time.Duration
+	work_max: time.Duration
+
 	for !rl.WindowShouldClose() {
 		if opt.frames > 0 && frame >= opt.frames {
 			break
@@ -90,9 +105,10 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 		frame += 1
 
 		frame_dt := rl.GetFrameTime()
+		work_start := time.tick_now()
 
 		// 0. streaming - residency around the player
-		player_pos := ecs.get_or(&s.position, s.player, sim.Vec2{})
+		player_pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})
 		sim.streaming_update(s, player_pos)
 
 		// 1. input - devices to intent
@@ -113,6 +129,10 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 		// 10. rendering - reads only
 		render.draw(&r, s)
 		render.draw_debug(&r, s, alpha, acc.steps_run)
+		work := time.tick_since(work_start)
+		work_total += work
+		work_max = max(work_max, work)
+
 		rl.EndDrawing()
 
 		// Sound requests are drained by presentation once per frame. There is
@@ -124,9 +144,20 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 			rl.TakeScreenshot(fmt.ctprintf("%s", opt.screenshot))
 		}
 
-		if !ecs.is_alive(&s.entities, s.player) {
+		if !ecs.entity_is_alive(&s.entities, s.player) {
 			respawn_player(s)
 		}
+	}
+
+	if frame > 0 {
+		mean := time.duration_microseconds(work_total) / f64(frame)
+		peak := time.duration_microseconds(work_max)
+		fmt.printfln("frames           %v", frame)
+		fmt.printfln("frame work       %.0f us mean, %.0f us peak", mean, peak)
+		// What the frame rate would be if nothing paced the present. Compare
+		// against the FPS counter: if that reads your refresh rate and this
+		// reads far higher, the game is idle-waiting, not working.
+		fmt.printfln("uncapped         %.0f fps mean, %.0f fps worst", 1e6 / mean, 1e6 / peak)
 	}
 }
 
@@ -140,7 +171,7 @@ handle_hotkeys :: proc(s: ^sim.State) {
 		fmt.printfln("load %v -> %v", SAVE_PATH, err)
 	}
 	if rl.IsKeyPressed(.R) {
-		sim.destroy_entity(s, s.player)
+		sim.entity_destroy(s, s.player)
 		respawn_player(s)
 	}
 }
@@ -155,11 +186,11 @@ run_headless :: proc(s: ^sim.State, ticks: int) {
 	fmt.printfln("headless: seed %v, %v ticks", s.seed, ticks)
 
 	for i in 0 ..< ticks {
-		player_pos := ecs.get_or(&s.position, s.player, sim.Vec2{})
+		player_pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})
 		sim.streaming_update(s, player_pos)
 
 		// Scripted input: walk right, jump every second.
-		if intent := ecs.get(&s.intent, s.player); intent != nil {
+		if intent := ecs.get(&s.control.intent, s.player); intent != nil {
 			intent.horizontal = 1
 			intent.jump_requested = i % 60 == 0
 		}
@@ -169,27 +200,28 @@ run_headless :: proc(s: ^sim.State, ticks: int) {
 		clear(&s.events.sounds)
 		free_all(context.temp_allocator)
 
-		if !ecs.is_alive(&s.entities, s.player) {
+		if !ecs.entity_is_alive(&s.entities, s.player) {
 			fmt.printfln("  tick %v: player died, respawning", s.tick)
 			respawn_player(s)
 		}
 	}
 
-	pos := ecs.get_or(&s.position, s.player, sim.Vec2{})
-	health := ecs.get_or(&s.health, s.player, sim.Health{})
-	anim := ecs.get_or(&s.animation, s.player, sim.Animation_State{})
+	pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})
+	health := ecs.get_or(&s.status.health, s.player, sim.Health{})
+	anim := ecs.get_or(&s.presentation.animation, s.player, sim.Animation_State{})
 
 	fmt.printfln("tick             %v", s.tick)
 	fmt.printfln("player position  %.1f, %.1f", pos.x, pos.y)
-	fmt.printfln("player health    %.1f / %.1f", health.current, health.max)
+	def := sim.definition_of(&s.identity, s.player)
+	fmt.printfln("player health    %.1f / %.1f", health.current, def.max_health)
 	fmt.printfln("player animation %v frame %v", anim.current, anim.frame)
 	fmt.printfln("live entities    %v", s.entities.live_count)
-	fmt.printfln("resident chunks  %v", len(s.resident))
-	fmt.printfln("dormant chunks   %v", len(s.dormant))
+	fmt.printfln("resident chunks  %v", len(s.residency.resident))
+	fmt.printfln("dormant chunks   %v", len(s.residency.dormant))
 	fmt.printfln("component counts position=%v velocity=%v health=%v item=%v",
-		len(s.position.dense), len(s.velocity.dense), len(s.health.dense), len(s.item.dense))
+		len(s.spatial.position.dense), len(s.spatial.velocity.dense), len(s.status.health.dense), len(s.items.item.dense))
 
-	if inv := ecs.get(&s.inventory, s.player); inv != nil {
+	if inv := ecs.get(&s.items.inventory, s.player); inv != nil {
 		for slot in inv.slots {
 			if slot.item != .None {
 				fmt.printfln("inventory        %v x%v", slot.item, slot.count)
@@ -212,6 +244,8 @@ parse_args :: proc() -> Options {
 		switch {
 		case arg == "--headless":
 			opt.headless = true
+		case arg == "--novsync":
+			opt.novsync = true
 		case strings.has_prefix(arg, "--seed="):
 			opt.seed = u64(strconv.parse_u64(arg[len("--seed="):]) or_else opt.seed)
 		case strings.has_prefix(arg, "--ticks="):
@@ -224,7 +258,7 @@ parse_args :: proc() -> Options {
 			opt.screenshot = arg[len("--screenshot="):]
 		case arg == "--help" || arg == "-h":
 			fmt.println(
-				"osai [--headless] [--ticks=N] [--seed=N] [--load=PATH] [--frames=N] [--screenshot=PATH]",
+				"osai [--headless] [--ticks=N] [--seed=N] [--load=PATH] [--frames=N] [--screenshot=PATH] [--novsync]",
 			)
 			os.exit(0)
 		case:

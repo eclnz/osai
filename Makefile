@@ -28,6 +28,7 @@ test:
 check:
 	$(ODIN) check $(SRC) -vet
 	$(ODIN) check $(SRC)/ecs -no-entry-point -vet
+	$(ODIN) check $(SRC)/serial -no-entry-point -vet
 	$(ODIN) check $(SRC)/world -no-entry-point -vet
 	$(ODIN) check $(SRC)/sim -no-entry-point -vet
 	$(ODIN) check $(SRC)/render -no-entry-point -vet

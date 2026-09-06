@@ -2,12 +2,7 @@ package sim
 
 import "../ecs"
 import "../world"
-
-// Systems never call each other. They communicate through frame-scoped event
-// queues: appended by many systems, drained by exactly one, then cleared.
-//
-// The rule that makes this work is ordering: a queue is drained *after*
-// everything that can append to it, and the drain order is fixed in step.odin.
+import "../serial"
 
 Damage_Event :: struct {
 	target: ecs.Entity,
@@ -23,7 +18,6 @@ Damage_Source :: enum u8 {
 
 Pickup_Event :: struct {
 	collector: ecs.Entity,
-	// The entity carrying the item in the world; destroyed by the drain.
 	item_entity: ecs.Entity,
 	item:        Item_Id,
 	count:       u16,
@@ -63,3 +57,30 @@ events_destroy :: proc(q: ^Event_Queues) {
 // clears the one queue it owns, so an append made *after* that drain survives
 // to the next fixed step instead of being swept away. Sounds are drained by
 // the presentation layer once per frame rather than per fixed step.
+
+// Pending work has to survive a save, for the same reason it survives a step.
+// It is tempting to skip this on the grounds that the queues happen to be
+// empty whenever the game is saved today - but that is only true because
+// collision is currently the sole producer of damage. A potion, a burn or a
+// poison tick would run after `drain_damage` and leave damage pending across
+// the step boundary, exactly as the partial drain in `drain_spawns` already
+// anticipates for loot.
+//
+// `sounds` is the exception, and is deliberately absent: it is presentation
+// output, cleared once per rendered frame rather than per fixed step, and
+// replaying it on load would only fire a burst of stale audio.
+//
+// The entity handles inside these events stay valid across the round trip
+// because generations are restored with the entity store.
+events_save :: proc(w: ^serial.Writer, q: ^Event_Queues) {
+	serial.put_array(w, q.damage[:])
+	serial.put_array(w, q.pickups[:])
+	serial.put_array(w, q.spawns[:])
+}
+
+events_load :: proc(r: ^serial.Reader, q: ^Event_Queues) -> bool {
+	serial.take_array(r, &q.damage) or_return
+	serial.take_array(r, &q.pickups) or_return
+	serial.take_array(r, &q.spawns) or_return
+	return true
+}

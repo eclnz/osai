@@ -133,3 +133,30 @@ remove_chunk :: proc(t: ^Terrain, cc: Chunk_Coord) -> ^Chunk {
 	delete_key(&t.chunks, cc)
 	return chunk
 }
+
+// Residency. A chunk nobody has edited is a pure function of the seed and its
+// coordinate, so it can be thrown away and rebuilt rather than carried around.
+// A dirty one cannot - its tiles are no longer derivable - so it stays.
+//
+// These live here rather than in the caller because they are the pair that
+// balances `insert_chunk`: whoever allocates a chunk should be the one that
+// frees it, and the "regenerate it from the seed" rule is a fact about how
+// terrain works, not about why someone wanted the chunk.
+
+ensure_loaded :: proc(t: ^Terrain, seed: u64, cc: Chunk_Coord) {
+	if is_loaded(t, cc) {
+		return
+	}
+	insert_chunk(t, generate_chunk(seed, cc))
+}
+
+// Returns whether the chunk was discarded.
+discard_if_clean :: proc(t: ^Terrain, cc: Chunk_Coord) -> bool {
+	chunk := get_chunk(t, cc)
+	if chunk == nil || chunk.dirty {
+		return false
+	}
+	remove_chunk(t, cc)
+	free(chunk)
+	return true
+}

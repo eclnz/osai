@@ -6,7 +6,7 @@ import "core:testing"
 
 @(private)
 anim_of :: proc(s: ^sim.State, e: ecs.Entity) -> sim.Animation_Id {
-	return ecs.get(&s.animation, e).current
+	return ecs.get(&s.presentation.animation, e).current
 }
 
 @(test)
@@ -16,8 +16,8 @@ animation_derives_from_velocity_and_grounded :: proc(t: ^testing.T) {
 	defer sim.state_destroy(&s)
 
 	e := sim.spawn_player(&s, {40, 0})
-	vel := ecs.get(&s.velocity, e)
-	grounded := ecs.get(&s.grounded, e)
+	vel := ecs.get(&s.spatial.velocity, e)
+	grounded := ecs.get(&s.spatial.grounded, e)
 
 	grounded.on_ground = true
 	vel^ = {0, 0}
@@ -46,8 +46,8 @@ commands_outrank_derivation_until_they_expire :: proc(t: ^testing.T) {
 	defer sim.state_destroy(&s)
 
 	e := sim.spawn_player(&s, {40, 0})
-	ecs.get(&s.grounded, e).on_ground = true
-	ecs.get(&s.velocity, e)^ = {80, 0}
+	ecs.get(&s.spatial.grounded, e).on_ground = true
+	ecs.get(&s.spatial.velocity, e)^ = {80, 0}
 
 	sim.animation_system(&s, 0.016)
 	testing.expect_value(t, anim_of(&s, e), sim.Animation_Id.Run)
@@ -78,8 +78,8 @@ non_looping_commands_expire_on_completion :: proc(t: ^testing.T) {
 	defer sim.state_destroy(&s)
 
 	e := sim.spawn_player(&s, {40, 0})
-	ecs.get(&s.grounded, e).on_ground = true
-	ecs.get(&s.velocity, e)^ = {0, 0}
+	ecs.get(&s.spatial.grounded, e).on_ground = true
+	ecs.get(&s.spatial.velocity, e)^ = {0, 0}
 
 	// Hurt is 2 frames at 0.10s; a 10 second command still ends after 0.20s
 	// of animation, because completion expires it too.
@@ -104,7 +104,7 @@ damage_writes_an_animation_command_without_calling_animation :: proc(t: ^testing
 
 	// The damage drain wrote a field. It did not animate anything, and the
 	// animation state is untouched until the animation system runs.
-	anim := ecs.get(&s.animation, e)
+	anim := ecs.get(&s.presentation.animation, e)
 	testing.expect_value(t, anim.commanded, sim.Animation_Id.Hurt)
 	testing.expect(t, anim.command_expiry > 0)
 	testing.expect_value(t, anim.current, sim.Animation_Id.Idle)
@@ -113,24 +113,54 @@ damage_writes_an_animation_command_without_calling_animation :: proc(t: ^testing
 	testing.expect_value(t, anim_of(&s, e), sim.Animation_Id.Hurt)
 }
 
+// Facing is a simulation fact, not a render flag: the sim publishes a
+// direction and the renderer decides what that means in a texture. So there is
+// nothing in pixels to assert here, only the direction and its stickiness.
 @(test)
-sprite_is_written_by_animation_for_rendering_to_read :: proc(t: ^testing.T) {
+facing_follows_velocity_and_is_sticky :: proc(t: ^testing.T) {
 	s: sim.State
 	flat_state(&s)
 	defer sim.state_destroy(&s)
 
 	e := sim.spawn_player(&s, {40, 0})
-	ecs.get(&s.grounded, e).on_ground = true
-	ecs.get(&s.velocity, e)^ = {-80, 0}
+	// Neither pointer is invalidated below: facing_system only mutates.
+	facing := ecs.get(&s.spatial.facing, e)
+	vel := ecs.get(&s.spatial.velocity, e)
 
-	sim.animation_system(&s, 0.016)
-	sprite := ecs.get(&s.sprite, e)
-	testing.expect_value(t, sprite.source.w, f32(sim.FRAME_W))
-	testing.expect_value(t, sprite.source.y, f32(int(sim.Animation_Id.Run) * sim.FRAME_H))
-	testing.expect(t, sprite.flip_x, "facing follows velocity")
+	testing.expect_value(t, facing^, sim.Facing(1)) // spawns facing right
 
-	// Facing is sticky: stopping does not snap the entity back to face right.
-	ecs.get(&s.velocity, e)^ = {0, 0}
-	sim.animation_system(&s, 0.016)
-	testing.expect(t, ecs.get(&s.sprite, e).flip_x)
+	vel^ = {-80, 0}
+	sim.facing_system(&s, sim.FIXED_DT)
+	testing.expect_value(t, facing^, sim.Facing(-1))
+
+	// Sticky: stopping does not snap the entity back to facing right.
+	vel^ = {0, 0}
+	sim.facing_system(&s, sim.FIXED_DT)
+	testing.expect_value(t, facing^, sim.Facing(-1))
+
+	// Nor does drift below the deadband, which is what makes it sticky.
+	vel^ = {0.5, 0}
+	sim.facing_system(&s, sim.FIXED_DT)
+	testing.expect_value(t, facing^, sim.Facing(-1))
+
+	vel^ = {80, 0}
+	sim.facing_system(&s, sim.FIXED_DT)
+	testing.expect_value(t, facing^, sim.Facing(1))
+}
+
+// Facing runs inside the fixed step, so a tick alone is enough to update it -
+// no frame-rate system involved.
+@(test)
+facing_updates_within_the_fixed_step :: proc(t: ^testing.T) {
+	s: sim.State
+	flat_state(&s)
+	defer sim.state_destroy(&s)
+
+	e := sim.spawn_player(&s, {40, 0})
+	ecs.get(&s.control.intent, e).horizontal = -1
+
+	for _ in 0 ..< 10 {
+		sim.fixed_step(&s)
+	}
+	testing.expect_value(t, ecs.get(&s.spatial.facing, e)^, sim.Facing(-1))
 }

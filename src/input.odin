@@ -12,7 +12,7 @@ import rl "vendor:raylib"
 // has to know the other exists.
 
 input_system :: proc(s: ^sim.State) {
-	intent := ecs.get(&s.intent, s.player)
+	intent := ecs.get(&s.control.intent, s.player)
 	if intent == nil {
 		return
 	}
@@ -37,7 +37,7 @@ input_end_frame :: proc(s: ^sim.State, steps_run: int) {
 	if steps_run == 0 {
 		return
 	}
-	if intent := ecs.get(&s.intent, s.player); intent != nil {
+	if intent := ecs.get(&s.control.intent, s.player); intent != nil {
 		intent.jump_requested = false
 	}
 }

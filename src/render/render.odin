@@ -20,6 +20,12 @@ Renderer :: struct {
 	draw_list:       [dynamic]Draw_Item,
 }
 
+// Sprite sheet layout. This lives here and not in `sim`: the simulation says
+// which animation is playing and which frame it is on, and where that lands in
+// a texture is entirely the renderer's business.
+FRAME_W :: 16
+FRAME_H :: 24
+
 // Sorted by layer, then by texture: layer is correctness, texture is the
 // batching key a real sprite renderer would group on.
 Draw_Item :: struct {
@@ -27,8 +33,24 @@ Draw_Item :: struct {
 	texture:  sim.Texture_Id,
 	position: sim.Vec2,
 	size:     sim.Vec2,
-	sprite:   sim.Sprite,
+	// Row and frame index into the sheet, not pixels.
+	animated: bool,
+	row:      int,
+	frame:    int,
+	flip_x:   bool,
 	tint:     rl.Color,
+}
+
+@(private)
+source_rect :: proc(item: Draw_Item) -> rl.Rectangle {
+	// A negative width is how raylib mirrors a source region.
+	w := f32(FRAME_W)
+	return rl.Rectangle {
+		f32(item.frame * FRAME_W),
+		f32(item.row * FRAME_H),
+		item.flip_x ? -w : w,
+		f32(FRAME_H),
+	}
 }
 
 renderer_init :: proc(r: ^Renderer, zoom: f32 = 2.5) {
@@ -56,9 +78,9 @@ interpolate :: proc(r: ^Renderer, s: ^sim.State, alpha: f32) {
 	// streamed out simply do not reappear. Nothing has to remove them.
 	ecs.set_clear(&r.render_position)
 
-	for pos, i in s.position.dense {
-		e := s.position.owners[i]
-		prev := ecs.get_or(&s.previous_position, e, pos)
+	for pos, i in s.spatial.position.dense {
+		e := s.spatial.position.owners[i]
+		prev := ecs.get_or(&s.spatial.previous_position, e, pos)
 		ecs.add(&r.render_position, e, prev + (pos - prev) * alpha)
 	}
 }
@@ -118,18 +140,23 @@ draw_entities :: proc(r: ^Renderer, s: ^sim.State) {
 	for pos, i in r.render_position.dense {
 		e := r.render_position.owners[i]
 
-		appearance := ecs.get(&s.appearance, e)
+		appearance := ecs.get(&s.presentation.appearance, e)
 		if appearance == nil {
 			continue // nothing to draw is not an error
 		}
-		collider := ecs.get_or(&s.collider, e, sim.Collider{size = {8, 8}})
+		collider := ecs.get_or(&s.spatial.collider, e, sim.Collider{size = {8, 8}})
+		anim := ecs.get(&s.presentation.animation, e)
+		facing := ecs.get_or(&s.spatial.facing, e, sim.Facing(1))
 
 		append(&r.draw_list, Draw_Item {
-			depth    = ecs.get_or(&s.layer, e, sim.Layer{}).depth,
+			depth    = ecs.get_or(&s.presentation.layer, e, sim.Layer{}).depth,
 			texture  = appearance.texture,
 			position = pos,
 			size     = collider.size,
-			sprite   = ecs.get_or(&s.sprite, e, sim.Sprite{}),
+			animated = anim != nil,
+			row      = anim != nil ? int(anim.current) : 0,
+			frame    = anim != nil ? anim.frame : 0,
+			flip_x   = facing < 0,
 			tint     = rl.Color(appearance.tint),
 		})
 	}
@@ -147,14 +174,8 @@ draw_entities :: proc(r: ^Renderer, s: ^sim.State) {
 			draw_placeholder(item)
 			continue
 		}
-		source := rl.Rectangle {
-			item.sprite.source.x,
-			item.sprite.source.y,
-			item.sprite.flip_x ? -item.sprite.source.w : item.sprite.source.w,
-			item.sprite.source.h,
-		}
 		dest := rl.Rectangle{item.position.x, item.position.y, item.size.x, item.size.y}
-		rl.DrawTexturePro(texture, source, dest, {0, 0}, 0, item.tint)
+		rl.DrawTexturePro(texture, source_rect(item), dest, {0, 0}, 0, item.tint)
 	}
 }
 
@@ -167,15 +188,13 @@ draw_placeholder :: proc(item: Draw_Item) {
 	// the same type and pass straight through.
 	rl.DrawRectangleV(item.position, item.size, item.tint)
 
-	if item.sprite.source.w == 0 {
+	if !item.animated {
 		return
 	}
-	frame := i32(item.sprite.source.x / item.sprite.source.w)
-	row := i32(item.sprite.source.y / item.sprite.source.h)
 
-	marker_x := i32(item.position.x) + (item.sprite.flip_x ? i32(item.size.x) - 3 : 1)
-	rl.DrawRectangle(marker_x, i32(item.position.y) + 1, 2, 2 + frame, {20, 20, 24, 255})
-	rl.DrawRectangle(i32(item.position.x) + 1, i32(item.position.y + item.size.y) - 3, 2 + row, 2, {20, 20, 24, 255})
+	marker_x := i32(item.position.x) + (item.flip_x ? i32(item.size.x) - 3 : 1)
+	rl.DrawRectangle(marker_x, i32(item.position.y) + 1, 2, 2 + i32(item.frame), {20, 20, 24, 255})
+	rl.DrawRectangle(i32(item.position.x) + 1, i32(item.position.y + item.size.y) - 3, 2 + i32(item.row), 2, {20, 20, 24, 255})
 }
 
 visible_world_rect :: proc(r: ^Renderer) -> rl.Rectangle {

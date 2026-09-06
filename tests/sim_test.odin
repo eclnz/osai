@@ -22,8 +22,8 @@ flat_state :: proc(s: ^sim.State, seed: u64 = 99) {
 				}
 			}
 			world.insert_chunk(&s.terrain, chunk)
-			s.resident[cc] = true
-			s.populated[cc] = true
+			s.residency.resident[cc] = true
+			s.residency.populated[cc] = true
 		}
 	}
 }
@@ -39,14 +39,14 @@ gravity_and_terrain_collision_land_an_entity :: proc(t: ^testing.T) {
 		sim.fixed_step(&s)
 	}
 
-	pos := ecs.get(&s.position, e)
-	col := ecs.get(&s.collider, e)
-	grounded := ecs.get(&s.grounded, e)
+	pos := ecs.get(&s.spatial.position, e)
+	col := ecs.get(&s.spatial.collider, e)
+	grounded := ecs.get(&s.spatial.grounded, e)
 
 	// Feet rest exactly on the top of row 10, and stay there.
 	testing.expect_value(t, pos.y + col.size.y, f32(10 * world.TILE_SIZE))
 	testing.expect(t, grounded.on_ground)
-	testing.expect_value(t, ecs.get(&s.velocity, e).y, 0)
+	testing.expect_value(t, ecs.get(&s.spatial.velocity, e).y, 0)
 }
 
 @(test)
@@ -58,22 +58,22 @@ intent_drives_movement_and_jumping :: proc(t: ^testing.T) {
 	e := sim.spawn_player(&s, {40, 100})
 	for _ in 0 ..< 60 {sim.fixed_step(&s)} // settle on the ground
 
-	start_x := ecs.get(&s.position, e).x
-	intent := ecs.get(&s.intent, e)
+	start_x := ecs.get(&s.spatial.position, e).x
+	intent := ecs.get(&s.control.intent, e)
 	intent.horizontal = 1
 	intent.jump_requested = true
 
 	sim.fixed_step(&s)
 	// The movement system consumes the jump request itself, so a held key is
 	// one jump rather than one per catch-up step.
-	testing.expect(t, !ecs.get(&s.intent, e).jump_requested)
-	testing.expect(t, ecs.get(&s.velocity, e).y < 0, "jump should give upward velocity")
+	testing.expect(t, !ecs.get(&s.control.intent, e).jump_requested)
+	testing.expect(t, ecs.get(&s.spatial.velocity, e).y < 0, "jump should give upward velocity")
 
 	for _ in 0 ..< 30 {
-		ecs.get(&s.intent, e).horizontal = 1
+		ecs.get(&s.control.intent, e).horizontal = 1
 		sim.fixed_step(&s)
 	}
-	testing.expect(t, ecs.get(&s.position, e).x > start_x)
+	testing.expect(t, ecs.get(&s.spatial.position, e).x > start_x)
 }
 
 @(test)
@@ -89,10 +89,10 @@ absence_of_health_means_invulnerable :: proc(t: ^testing.T) {
 	append(&s.events.damage, sim.Damage_Event{target = coin, amount = 10})
 	sim.drain_damage(&s)
 
-	testing.expect_value(t, ecs.get(&s.health, player).current, 90)
+	testing.expect_value(t, ecs.get(&s.status.health, player).current, 90)
 	// Not a special case, not a flag: the coin is simply not in the array.
-	testing.expect(t, !ecs.has(&s.health, coin))
-	testing.expect(t, ecs.is_alive(&s.entities, coin))
+	testing.expect(t, !ecs.has(&s.status.health, coin))
+	testing.expect(t, ecs.entity_is_alive(&s.entities, coin))
 }
 
 @(test)
@@ -106,11 +106,11 @@ hazard_tiles_damage_through_the_queue :: proc(t: ^testing.T) {
 	}
 
 	e := sim.spawn_player(&s, {40, 0})
-	before := ecs.get(&s.health, e).current
+	before := ecs.get(&s.status.health, e).current
 	for _ in 0 ..< 120 {
 		sim.fixed_step(&s)
 	}
-	after := ecs.get(&s.health, e).current
+	after := ecs.get(&s.status.health, e).current
 	testing.expect(t, after < before, "standing in lava should hurt")
 }
 
@@ -125,11 +125,11 @@ pickups_move_through_the_queue_and_destroy_the_item :: proc(t: ^testing.T) {
 
 	sim.fixed_step(&s)
 
-	inv := ecs.get(&s.inventory, player)
+	inv := ecs.get(&s.items.inventory, player)
 	testing.expect_value(t, inv.slots[0].item, sim.Item_Id.Coin)
 	testing.expect_value(t, inv.slots[0].count, u16(1))
-	testing.expect(t, !ecs.is_alive(&s.entities, coin), "collected item is destroyed")
-	testing.expect(t, !ecs.has(&s.position, coin), "and leaves no component behind")
+	testing.expect(t, !ecs.entity_is_alive(&s.entities, coin), "collected item is destroyed")
+	testing.expect(t, !ecs.has(&s.spatial.position, coin), "and leaves no component behind")
 }
 
 @(test)
@@ -143,10 +143,10 @@ death_destroys_the_entity_and_frees_the_slot :: proc(t: ^testing.T) {
 
 	sim.fixed_step(&s)
 
-	testing.expect(t, !ecs.is_alive(&s.entities, e))
-	testing.expect(t, !ecs.has(&s.position, e))
-	testing.expect(t, !ecs.has(&s.health, e))
-	testing.expect(t, !ecs.has(&s.animation, e))
+	testing.expect(t, !ecs.entity_is_alive(&s.entities, e))
+	testing.expect(t, !ecs.has(&s.spatial.position, e))
+	testing.expect(t, !ecs.has(&s.status.health, e))
+	testing.expect(t, !ecs.has(&s.presentation.animation, e))
 }
 
 @(test)

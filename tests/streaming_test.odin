@@ -21,26 +21,26 @@ entities_stream_out_and_back_unchanged :: proc(t: ^testing.T) {
 		0,
 	}
 	walker := sim.spawn_walker(&s, far)
-	ecs.get(&s.health, walker).current = 17
+	ecs.get(&s.status.health, walker).current = 17
 	far_chunk := world.chunk_coord_of_world(far)
 
 	// Bring that chunk in, then leave again.
 	sim.streaming_update(&s, far)
-	testing.expect(t, ecs.has(&s.position, walker), "resident entities live in the arrays")
+	testing.expect(t, ecs.has(&s.spatial.position, walker), "resident entities live in the arrays")
 
 	sim.streaming_update(&s, {0, 0})
-	testing.expect(t, !ecs.has(&s.position, walker), "streamed out means out of the arrays")
-	testing.expect(t, !ecs.has(&s.health, walker))
+	testing.expect(t, !ecs.has(&s.spatial.position, walker), "streamed out means out of the arrays")
+	testing.expect(t, !ecs.has(&s.status.health, walker))
 	// Out of the arrays is not destroyed: the entity still exists, so handles
 	// held elsewhere keep pointing at it.
-	testing.expect(t, ecs.is_alive(&s.entities, walker))
-	testing.expect(t, far_chunk in s.dormant)
+	testing.expect(t, ecs.entity_is_alive(&s.entities, walker))
+	testing.expect(t, far_chunk in s.residency.dormant)
 
 	sim.streaming_update(&s, far)
-	testing.expect(t, ecs.has(&s.position, walker), "and back in, with the same handle")
-	testing.expect_value(t, ecs.get(&s.position, walker)^, far)
-	testing.expect_value(t, ecs.get(&s.health, walker).current, f32(17))
-	testing.expect(t, far_chunk not_in s.dormant)
+	testing.expect(t, ecs.has(&s.spatial.position, walker), "and back in, with the same handle")
+	testing.expect_value(t, ecs.get(&s.spatial.position, walker)^, far)
+	testing.expect_value(t, ecs.get(&s.status.health, walker).current, f32(17))
+	testing.expect(t, far_chunk not_in s.residency.dormant)
 }
 
 @(test)
@@ -61,7 +61,7 @@ reloading_a_chunk_does_not_repopulate_it :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.entities.live_count, s.entities.live_count)
 	origin_chunk := world.Chunk_Coord{0, 0}
 	resident_at_origin := 0
-	for p in s.position.dense {
+	for p in s.spatial.position.dense {
 		if world.chunk_coord_of_world(p) == origin_chunk {
 			resident_at_origin += 1
 		}
@@ -97,12 +97,12 @@ save_and_load_round_trips_the_whole_state :: proc(t: ^testing.T) {
 	testing.expect_value(t, restored.tick, original.tick)
 	testing.expect_value(t, restored.player, player)
 	testing.expect_value(t, restored.entities.live_count, original.entities.live_count)
-	testing.expect_value(t, len(restored.position.dense), len(original.position.dense))
-	testing.expect_value(t, len(restored.resident), len(original.resident))
+	testing.expect_value(t, len(restored.spatial.position.dense), len(original.spatial.position.dense))
+	testing.expect_value(t, len(restored.residency.resident), len(original.residency.resident))
 
 	// Entity handles survive, so the player is still the player.
-	testing.expect_value(t, ecs.get(&restored.position, player)^, ecs.get(&original.position, player)^)
-	testing.expect_value(t, ecs.get(&restored.health, player).current, ecs.get(&original.health, player).current)
+	testing.expect_value(t, ecs.get(&restored.spatial.position, player)^, ecs.get(&original.spatial.position, player)^)
+	testing.expect_value(t, ecs.get(&restored.status.health, player).current, ecs.get(&original.status.health, player).current)
 	testing.expect_value(t, world.tile_at(&restored.terrain, {2, 2}), world.Tile.Stone)
 
 	// And the restored world keeps simulating identically.
@@ -110,7 +110,7 @@ save_and_load_round_trips_the_whole_state :: proc(t: ^testing.T) {
 		sim.fixed_step(&original)
 		sim.fixed_step(&restored)
 	}
-	testing.expect_value(t, ecs.get(&restored.position, player)^, ecs.get(&original.position, player)^)
+	testing.expect_value(t, ecs.get(&restored.spatial.position, player)^, ecs.get(&original.spatial.position, player)^)
 }
 
 @(test)

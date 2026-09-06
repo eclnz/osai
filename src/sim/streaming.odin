@@ -1,104 +1,78 @@
 package sim
 
 import "../ecs"
+import "../serial"
 import "../world"
 
-// Streaming is residency, not filtering.
+// Streaming is residency, not filtering - so the residency state and the pass
+// that maintains it are the same file.
 //
 // Systems never iterate a list of active IDs - that would be an ID lookup per
 // entity per system, which is the thing packed arrays exist to avoid. Instead
 // an entity that leaves the active region is copied out of the component
 // arrays into a blob attached to its chunk, and removed. Everything still in
-// the arrays is active by definition.
+// the arrays is active by definition. The blob and its capture/restore live in
+// dormant.odin; this file decides *when* they happen.
 //
 // The entity's *slot* is not freed, so handles held elsewhere stay valid and
-// keep pointing at the same entity when it streams back in. `ecs.is_alive`
+// keep pointing at the same entity when it streams back in. `ecs.entity_is_alive`
 // answers "does this entity exist", not "is it resident".
 
-Component_Flag :: enum u8 {
-	Position,
-	Previous_Position,
-	Velocity,
-	Collider,
-	Grounded,
-	Intent,
-	Movement,
-	AI,
-	Health,
-	Appearance,
-	Animation,
-	Sprite,
-	Layer,
-	Inventory,
-	Item,
+// The three maps are only ever written here, which is why they live in this
+// file rather than a group file of their own: there is no second party for a
+// data/behaviour boundary to protect. `world/chunk.odin` owns the other half
+// of the word - tiles and the terrain map. Nothing below holds a tile; these
+// borrow that package's `Chunk_Coord` purely as a key.
+Residency :: struct {
+	dormant: map[world.Chunk_Coord][dynamic]Dormant_Entity,
+	resident: map[world.Chunk_Coord]bool,
+	populated: map[world.Chunk_Coord]bool,
 }
 
-Component_Flags :: bit_set[Component_Flag;u32]
-
-// A whole entity as plain data. Every field is POD, so this is one memcpy
-// away from being a save file record - which is exactly what save.odin does
-// with it.
-Dormant_Entity :: struct {
-	entity:            ecs.Entity,
-	present:           Component_Flags,
-	position:          Vec2,
-	previous_position: Vec2,
-	velocity:          Vec2,
-	collider:          Collider,
-	grounded:          Grounded,
-	intent:            Intent,
-	movement:          Movement_Params,
-	ai:                AI_State,
-	health:            Health,
-	appearance:        Appearance,
-	animation:         Animation_State,
-	sprite:            Sprite,
-	layer:             Layer,
-	inventory:         Inventory,
-	item:              Item_Slot,
+residency_init :: proc(res: ^Residency) {
+	res.dormant = make(map[world.Chunk_Coord][dynamic]Dormant_Entity)
+	res.resident = make(map[world.Chunk_Coord]bool)
+	res.populated = make(map[world.Chunk_Coord]bool)
 }
 
-// Second of the two places that enumerate every component array (the other is
-// `detach_all_components`). Adding an array means touching both.
-capture_entity :: proc(s: ^State, e: ecs.Entity) -> Dormant_Entity {
-	d := Dormant_Entity {
-		entity = e,
+residency_destroy :: proc(res: ^Residency) {
+	for _, &list in res.dormant {
+		delete(list)
 	}
-	if v := ecs.get(&s.position, e); v != nil {d.position = v^;d.present += {.Position}}
-	if v := ecs.get(&s.previous_position, e); v != nil {d.previous_position = v^;d.present += {.Previous_Position}}
-	if v := ecs.get(&s.velocity, e); v != nil {d.velocity = v^;d.present += {.Velocity}}
-	if v := ecs.get(&s.collider, e); v != nil {d.collider = v^;d.present += {.Collider}}
-	if v := ecs.get(&s.grounded, e); v != nil {d.grounded = v^;d.present += {.Grounded}}
-	if v := ecs.get(&s.intent, e); v != nil {d.intent = v^;d.present += {.Intent}}
-	if v := ecs.get(&s.movement, e); v != nil {d.movement = v^;d.present += {.Movement}}
-	if v := ecs.get(&s.ai, e); v != nil {d.ai = v^;d.present += {.AI}}
-	if v := ecs.get(&s.health, e); v != nil {d.health = v^;d.present += {.Health}}
-	if v := ecs.get(&s.appearance, e); v != nil {d.appearance = v^;d.present += {.Appearance}}
-	if v := ecs.get(&s.animation, e); v != nil {d.animation = v^;d.present += {.Animation}}
-	if v := ecs.get(&s.sprite, e); v != nil {d.sprite = v^;d.present += {.Sprite}}
-	if v := ecs.get(&s.layer, e); v != nil {d.layer = v^;d.present += {.Layer}}
-	if v := ecs.get(&s.inventory, e); v != nil {d.inventory = v^;d.present += {.Inventory}}
-	if v := ecs.get(&s.item, e); v != nil {d.item = v^;d.present += {.Item}}
-	return d
+	delete(res.dormant)
+	delete(res.resident)
+	delete(res.populated)
 }
 
-restore_entity :: proc(s: ^State, d: Dormant_Entity) {
-	e := d.entity
-	if .Position in d.present {ecs.add(&s.position, e, d.position)}
-	if .Previous_Position in d.present {ecs.add(&s.previous_position, e, d.previous_position)}
-	if .Velocity in d.present {ecs.add(&s.velocity, e, d.velocity)}
-	if .Collider in d.present {ecs.add(&s.collider, e, d.collider)}
-	if .Grounded in d.present {ecs.add(&s.grounded, e, d.grounded)}
-	if .Intent in d.present {ecs.add(&s.intent, e, d.intent)}
-	if .Movement in d.present {ecs.add(&s.movement, e, d.movement)}
-	if .AI in d.present {ecs.add(&s.ai, e, d.ai)}
-	if .Health in d.present {ecs.add(&s.health, e, d.health)}
-	if .Appearance in d.present {ecs.add(&s.appearance, e, d.appearance)}
-	if .Animation in d.present {ecs.add(&s.animation, e, d.animation)}
-	if .Sprite in d.present {ecs.add(&s.sprite, e, d.sprite)}
-	if .Layer in d.present {ecs.add(&s.layer, e, d.layer)}
-	if .Inventory in d.present {ecs.add(&s.inventory, e, d.inventory)}
-	if .Item in d.present {ecs.add(&s.item, e, d.item)}
+residency_save :: proc(w: ^serial.Writer, res: ^Residency) {
+	serial.put(w, u32(len(res.dormant)))
+	for coord, list in res.dormant {
+		serial.put(w, coord)
+		serial.put_array(w, list[:])
+	}
+	serial.put(w, u32(len(res.resident)))
+	for coord in res.resident {serial.put(w, coord)}
+	serial.put(w, u32(len(res.populated)))
+	for coord in res.populated {serial.put(w, coord)}
+}
+
+residency_load :: proc(r: ^serial.Reader, res: ^Residency) -> bool {
+	dormant_chunks := serial.take(r, u32) or_return
+	for _ in 0 ..< dormant_chunks {
+		coord := serial.take(r, world.Chunk_Coord) or_return
+		list := make([dynamic]Dormant_Entity)
+		serial.take_array(r, &list) or_return
+		res.dormant[coord] = list
+	}
+	resident_count := serial.take(r, u32) or_return
+	for _ in 0 ..< resident_count {
+		res.resident[serial.take(r, world.Chunk_Coord) or_return] = true
+	}
+	populated_count := serial.take(r, u32) or_return
+	for _ in 0 ..< populated_count {
+		res.populated[serial.take(r, world.Chunk_Coord) or_return] = true
+	}
+	return true
 }
 
 // How many chunks either side of the centre stay resident.
@@ -119,7 +93,7 @@ streaming_update :: proc(s: ^State, center: Vec2, radius := STREAM_RADIUS) {
 	// Unload first, so an entity that has walked from one chunk to another
 	// is not captured and immediately re-captured.
 	to_unload := make([dynamic]world.Chunk_Coord, context.temp_allocator)
-	for cc in s.resident {
+	for cc in s.residency.resident {
 		if cc not_in wanted {
 			append(&to_unload, cc)
 		}
@@ -129,28 +103,24 @@ streaming_update :: proc(s: ^State, center: Vec2, radius := STREAM_RADIUS) {
 	}
 
 	for cc in wanted {
-		if cc not_in s.resident {
+		if cc not_in s.residency.resident {
 			load_chunk(s, cc)
 		}
 	}
 }
 
 load_chunk :: proc(s: ^State, cc: world.Chunk_Coord) {
-	if cc in s.resident {
+	if cc in s.residency.resident {
 		return
 	}
 
-	if !world.is_loaded(&s.terrain, cc) {
-		// Untouched chunks regenerate from the seed; only edited ones are
-		// carried around (and, later, written to disk).
-		world.insert_chunk(&s.terrain, world.generate_chunk(s.seed, cc))
-	}
+	world.ensure_loaded(&s.terrain, s.seed, cc)
 
 	// Generation runs again on every reload; population does not. The
 	// entities it produced the first time are dormant, not gone, and are
 	// restored below.
-	if cc not_in s.populated {
-		s.populated[cc] = true
+	if cc not_in s.residency.populated {
+		s.residency.populated[cc] = true
 		chunk := world.get_chunk(&s.terrain, cc)
 		requests := make([dynamic]world.Spawn_Request, context.temp_allocator)
 		world.populate_chunk(s.seed, chunk, &requests)
@@ -161,27 +131,27 @@ load_chunk :: proc(s: ^State, cc: world.Chunk_Coord) {
 	}
 
 	// Entities that were resident here before are woken exactly as they were.
-	if dormant, ok := s.dormant[cc]; ok {
+	if dormant, ok := s.residency.dormant[cc]; ok {
 		for d in dormant {
 			restore_entity(s, d)
 		}
 		delete(dormant)
-		delete_key(&s.dormant, cc)
+		delete_key(&s.residency.dormant, cc)
 	}
 
-	s.resident[cc] = true
+	s.residency.resident[cc] = true
 }
 
 unload_chunk :: proc(s: ^State, cc: world.Chunk_Coord) {
-	if cc not_in s.resident {
+	if cc not_in s.residency.resident {
 		return
 	}
 
 	// Collect first: capturing mutates the arrays we are iterating.
 	leaving := make([dynamic]ecs.Entity, context.temp_allocator)
-	for p, i in s.position.dense {
+	for p, i in s.spatial.position.dense {
 		if world.chunk_coord_of_world(p) == cc {
-			e := s.position.owners[i]
+			e := s.spatial.position.owners[i]
 			// The player is never streamed out from under the camera.
 			if e == s.player {
 				continue
@@ -191,10 +161,10 @@ unload_chunk :: proc(s: ^State, cc: world.Chunk_Coord) {
 	}
 
 	if len(leaving) > 0 {
-		list, ok := &s.dormant[cc]
+		list, ok := &s.residency.dormant[cc]
 		if !ok {
-			s.dormant[cc] = make([dynamic]Dormant_Entity)
-			list = &s.dormant[cc]
+			s.residency.dormant[cc] = make([dynamic]Dormant_Entity)
+			list = &s.residency.dormant[cc]
 		}
 		for e in leaving {
 			append(list, capture_entity(s, e))
@@ -202,13 +172,9 @@ unload_chunk :: proc(s: ^State, cc: world.Chunk_Coord) {
 		}
 	}
 
-	// A chunk nobody has edited can be thrown away and regenerated; an edited
-	// one has to be kept (in memory here, on disk once saving is wired to
-	// unload).
-	if chunk := world.get_chunk(&s.terrain, cc); chunk != nil && !chunk.dirty {
-		world.remove_chunk(&s.terrain, cc)
-		free(chunk)
-	}
+	// An edited chunk stays in memory (and, once saving is wired to unload, on
+	// disk); a clean one is regenerated on the way back in.
+	world.discard_if_clean(&s.terrain, cc)
 
-	delete_key(&s.resident, cc)
+	delete_key(&s.residency.resident, cc)
 }

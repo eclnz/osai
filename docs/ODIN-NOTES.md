@@ -13,7 +13,7 @@ from `sim/animation.odin` with no ceremony, because they are the same package.
 Imports are paths, and the last element is the name you use:
 
 ```odin
-import "../ecs"                 // -> ecs.create_entity(...)
+import "../ecs"                 // -> ecs.entity_create(...)
 import rl "vendor:raylib"       // renamed, because `raylib.DrawText` is a mouthful
 ```
 

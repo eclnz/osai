@@ -4,13 +4,6 @@ import "../ecs"
 import "../world"
 
 // Collision - entity vs terrain, then entity vs entity. Writes `grounded`,
-// corrects `position`, and appends to the damage and pickup queues. It does
-// not apply damage or move items into inventories; those are drains, and
-// keeping them separate is what stops "who runs first" from mattering.
-//
-// Correction happens inline here rather than in a separate resolution pass.
-// That is one of the spec's open questions; the axis-separated resolution
-// below is small enough that splitting it would currently buy nothing.
 
 AABB :: struct {
 	min: Vec2,
@@ -34,6 +27,60 @@ tile_span :: proc(box: AABB) -> (lo, hi: world.Tile_Coord) {
 	return
 }
 
+@(private = "file")
+AXIS_X :: 0
+@(private = "file")
+AXIS_Y :: 1
+
+// Resolve one axis of motion against solid terrain: snap the entity to the
+// face of the first solid tile it would enter, and kill that component of
+// velocity.
+//
+// `probe` is where the box is tested, which is not always `pos` - see the
+// caller for why the x pass tests against the previous y.
+//
+// The scan runs perpendicular-axis outer, resolved-axis inner. That is the one
+// rule both passes followed when they were written out separately, and it is
+// what makes them the same procedure rather than two similar ones.
+//
+// Returns whether the entity was stopped while moving in the positive
+// direction; on the y axis that means it landed on something.
+@(private = "file")
+sweep_axis :: proc(
+	s: ^State,
+	axis: int,
+	probe: Vec2,
+	pos: ^Vec2,
+	vel: ^Vec2,
+	col: Collider,
+) -> (stopped_positive: bool) {
+	if vel^[axis] == 0 {
+		return false
+	}
+	other := 1 - axis
+	lo, hi := tile_span(aabb_of(probe, col))
+	moving_positive := vel^[axis] > 0
+
+	for o in lo[other] ..= hi[other] {
+		for a in lo[axis] ..= hi[axis] {
+			tile: world.Tile_Coord
+			tile[axis] = a
+			tile[other] = o
+			if !world.is_solid_at(&s.terrain, tile) {
+				continue
+			}
+			if moving_positive {
+				pos^[axis] = f32(a) * TILE_SIZE - col.size[axis]
+			} else {
+				pos^[axis] = f32(a + 1) * TILE_SIZE
+			}
+			vel^[axis] = 0
+			return moving_positive
+		}
+	}
+	return false
+}
+
 collision_system :: proc(s: ^State, dt: f32) {
 	terrain_collision(s)
 	hazard_damage(s, dt)
@@ -44,63 +91,25 @@ collision_system :: proc(s: ^State, dt: f32) {
 // *previous* y so that walking into a wall does not also read as landing on
 // the tile above it; Y is then resolved at the corrected x.
 terrain_collision :: proc(s: ^State) {
-	for &pos, i in s.position.dense {
-		e := s.position.owners[i]
+	for &pos, i in s.spatial.position.dense {
+		e := s.spatial.position.owners[i]
 
-		col := ecs.get(&s.collider, e)
+		col := ecs.get(&s.spatial.collider, e)
 		if col == nil {
 			continue
 		}
-		vel := ecs.get(&s.velocity, e)
+		vel := ecs.get(&s.spatial.velocity, e)
 		if vel == nil {
-			// Nothing that does not move can collide with static terrain.
 			continue
 		}
-		prev := ecs.get_or(&s.previous_position, e, pos)
+		prev := ecs.get_or(&s.spatial.previous_position, e, pos)
 
-		// --- x ---
-		if vel.x != 0 {
-			box := aabb_of({pos.x, prev.y}, col^)
-			lo, hi := tile_span(box)
-			search_x: for ty in lo.y ..= hi.y {
-				for tx in lo.x ..= hi.x {
-					if !world.is_solid_at(&s.terrain, {tx, ty}) {
-						continue
-					}
-					if vel.x > 0 {
-						pos.x = f32(tx) * TILE_SIZE - col.size.x
-					} else {
-						pos.x = f32(tx + 1) * TILE_SIZE
-					}
-					vel.x = 0
-					break search_x
-				}
-			}
-		}
+		// X is resolved against the entity's *previous* y, so that walking into
+		// a wall does not also read as landing on the tile above it.
+		sweep_axis(s, AXIS_X, {pos.x, prev.y}, &pos, vel, col^)
+		landed := sweep_axis(s, AXIS_Y, pos, &pos, vel, col^)
 
-		// --- y ---
-		landed := false
-		if vel.y != 0 {
-			box := aabb_of(pos, col^)
-			lo, hi := tile_span(box)
-			search_y: for tx in lo.x ..= hi.x {
-				for ty in lo.y ..= hi.y {
-					if !world.is_solid_at(&s.terrain, {tx, ty}) {
-						continue
-					}
-					if vel.y > 0 {
-						pos.y = f32(ty) * TILE_SIZE - col.size.y
-						landed = true
-					} else {
-						pos.y = f32(ty + 1) * TILE_SIZE
-					}
-					vel.y = 0
-					break search_y
-				}
-			}
-		}
-
-		if g := ecs.get(&s.grounded, e); g != nil {
+		if g := ecs.get(&s.spatial.grounded, e); g != nil {
 			// Standing still on a floor keeps `landed` false, so also probe
 			// one pixel below when the entity is not moving upwards.
 			if !landed && vel.y >= 0 {
@@ -123,15 +132,12 @@ terrain_collision :: proc(s: ^State) {
 	}
 }
 
-// Hazard tiles append damage events; they do not subtract health. The damage
-// drain is the only thing that writes to the health array, so "what killed
-// me" stays answerable in one place.
 hazard_damage :: proc(s: ^State, dt: f32) {
-	for _, i in s.health.dense {
-		e := s.health.owners[i]
+	for _, i in s.status.health.dense {
+		e := s.status.health.owners[i]
 
-		col := ecs.get(&s.collider, e)
-		pos := ecs.get(&s.position, e)
+		col := ecs.get(&s.spatial.collider, e)
+		pos := ecs.get(&s.spatial.position, e)
 		if col == nil || pos == nil {
 			continue
 		}
@@ -158,23 +164,23 @@ hazard_damage :: proc(s: ^State, dt: f32) {
 // This is the naive product of the two arrays. There is no broadphase yet;
 // the spatial grid the spec puts in step 0 is not built.
 entity_collision :: proc(s: ^State) {
-	if len(s.item.dense) == 0 || len(s.inventory.dense) == 0 {
+	if len(s.items.item.dense) == 0 || len(s.items.inventory.dense) == 0 {
 		return
 	}
 
-	for _, ci in s.inventory.dense {
-		collector := s.inventory.owners[ci]
-		c_pos := ecs.get(&s.position, collector)
-		c_col := ecs.get(&s.collider, collector)
+	for _, ci in s.items.inventory.dense {
+		collector := s.items.inventory.owners[ci]
+		c_pos := ecs.get(&s.spatial.position, collector)
+		c_col := ecs.get(&s.spatial.collider, collector)
 		if c_pos == nil || c_col == nil {
 			continue
 		}
 		c_box := aabb_of(c_pos^, c_col^)
 
-		for slot, ii in s.item.dense {
-			item_entity := s.item.owners[ii]
-			i_pos := ecs.get(&s.position, item_entity)
-			i_col := ecs.get(&s.collider, item_entity)
+		for slot, ii in s.items.item.dense {
+			item_entity := s.items.item.owners[ii]
+			i_pos := ecs.get(&s.spatial.position, item_entity)
+			i_col := ecs.get(&s.spatial.collider, item_entity)
 			if i_pos == nil || i_col == nil {
 				continue
 			}
