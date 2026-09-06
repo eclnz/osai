@@ -25,6 +25,40 @@ State :: struct {
 	seed:   u64,
 	tick:   u64,
 	player: ecs.Entity,
+
+	// Entities a pass has decided to destroy while it is still iterating the
+	// array they live in.
+	//
+	// Destroying inline swap-and-pops the dense array underneath the loop,
+	// which skips whatever was moved into the freed slot. The two passes that
+	// can destroy mid-traversal - projectile expiry and death - each used to
+	// collect into a temp array of their own and destroy afterwards. This is
+	// that pattern named once and reused, rather than allocated per pass per
+	// tick.
+	//
+	// Always empty between passes, so it is scratch and is not saved.
+	//
+	// Deliberately *not* a destroy queue drained once at the end of the step.
+	// The drains destroy immediately and use liveness as a claim: two
+	// collectors overlapping one coin both queue a pickup, and it is the first
+	// one's destroy that makes the second's handle stale. Defer that and both
+	// collect the same coin. `drain_hits` guards a projectile the same way.
+	pending_destroy: [dynamic]ecs.Entity,
+}
+
+// Mark for destruction at the end of the current pass. Safe to call while
+// iterating any component array.
+destroy_pending :: proc(s: ^State, e: ecs.Entity) {
+	append(&s.pending_destroy, e)
+}
+
+// Destroy everything the current pass marked, and empty the buffer. Called by
+// the pass that filled it, before it returns.
+flush_pending_destroys :: proc(s: ^State) {
+	for e in s.pending_destroy {
+		entity_destroy(s, e)
+	}
+	clear(&s.pending_destroy)
 }
 
 state_init :: proc(s: ^State, seed: u64) {
@@ -48,6 +82,7 @@ state_destroy :: proc(s: ^State) {
 	residency_destroy(&s.residency)
 
 	events_destroy(&s.events)
+	delete(s.pending_destroy)
 	world.terrain_destroy(&s.terrain)
 	s^ = {}
 }

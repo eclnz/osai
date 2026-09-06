@@ -79,17 +79,16 @@ direction_of :: proc(v: Vec2) -> Vec2 {
 // pull itself still comes from the definition table, so a heavier projectile
 // is a new row and not a new system.
 //
-// Expiry collects first and destroys after, like `consequences_system`:
-// destroying inline would swap-and-pop the array being iterated.
+// Expiry marks first and destroys after, like `consequences_system`:
+// destroying inline would swap-and-pop the array being iterated. Both use the
+// shared `pending_destroy` buffer - see state.odin.
 projectile_system :: proc(s: ^State, dt: f32) {
-	expired := make([dynamic]ecs.Entity, context.temp_allocator)
-
 	for &proj, i in s.combat.projectile.dense {
 		e := s.combat.projectile.owners[i]
 
 		proj.life -= dt
 		if proj.life <= 0 {
-			append(&expired, e)
+			destroy_pending(s, e)
 			continue
 		}
 
@@ -101,7 +100,5 @@ projectile_system :: proc(s: ^State, dt: f32) {
 		vel.y = min(vel.y + params.gravity * dt, params.max_fall_speed)
 	}
 
-	for e in expired {
-		entity_destroy(s, e)
-	}
+	flush_pending_destroys(s)
 }
