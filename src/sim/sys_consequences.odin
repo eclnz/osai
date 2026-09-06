@@ -5,7 +5,7 @@ import "../ecs"
 // Consequences of condition: what happens to an entity because of the state
 // it is in, rather than because of anything it did this step.
 //
-// Death is the only one today. It lives outside drains.odin because it drains
+// Death is the only one today. It lives outside sys_drains.odin because it drains
 // nothing - it is a pass over the health array, not a queue consumer. Its
 // placement in the step still matters though: `step.odin` runs it after every
 // queue that could have changed health, so a lethal hit and the death it

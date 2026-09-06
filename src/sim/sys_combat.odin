@@ -6,7 +6,7 @@ import "core:math"
 // Firing and flight. Terrain contact is not here: a fireball bounces because
 // it carries a `Bounce`, which `terrain_collision` already knows how to
 // resolve, not because collision knows what a projectile is. Hitting a
-// creature is in systems_collision.odin with the rest of the entity-vs-entity
+// creature is in sys_collision.odin with the rest of the entity-vs-entity
 // work, for the same reason - it is one more question asked of the shared
 // broadphase.
 

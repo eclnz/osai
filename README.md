@@ -50,6 +50,20 @@ src/         package main: window, input, the frame loop
 tests/       odin test
 ```
 
+Inside `sim` the filename prefix says what the file is, because Odin has no
+sub-folders within a package — a directory *is* a package, so nesting would
+mean a new package and a new edge in the import graph:
+
+```
+comp_*.odin   a component group: plain data, its save/load, its capture/restore.
+              Never mentions ^State.
+sys_*.odin    systems — procedures that read arrays and write arrays.
+              All of them are rows in SCHEDULE except sys_animation.odin,
+              which runs once per rendered frame, outside the fixed step.
+(plain)       state, step, spawn, save, save_terrain, streaming, dormant,
+              events, broadphase, types — the state itself and its machinery.
+```
+
 `sim` does not import `render`. That is the spec's *"`render_position` is
 display-only, the simulation must never read it"* turned into something the
 compiler enforces: the interpolated position lives in `render.Renderer`, so no
@@ -66,13 +80,13 @@ The numbering matches the spec.
 |---|------|-------|
 | 0 | Streaming (residency) | `sim/streaming.odin` |
 | 1 | Input → `intent` | `src/input.odin` |
-| 2 | AI → `intent` | `sim/systems_control.odin` |
-| 3 | Movement → `velocity` | `sim/systems_control.odin` |
-| 4 | Integration → `position` | `sim/systems_control.odin` |
-| 5 | Collision → `grounded`, queues | `sim/systems_collision.odin` |
-| 6 | Drain damage, pickups, spawns | `sim/drains.odin` |
-| 7 | Consequences (death) | `sim/systems_status.odin` |
-| 8 | Animation → `sprite` | `sim/animation.odin` |
+| 2 | AI → `intent` | `sim/sys_control.odin` |
+| 3 | Movement → `velocity` | `sim/sys_control.odin` |
+| 4 | Integration → `position` | `sim/sys_control.odin` |
+| 5 | Collision → `grounded`, queues | `sim/sys_collision.odin` |
+| 6 | Drain damage, pickups, spawns | `sim/sys_drains.odin` |
+| 7 | Consequences (death) | `sim/sys_consequences.odin` |
+| 8 | Animation → `sprite` | `sim/sys_animation.odin` |
 | 9 | Interpolation → `render_position` | `render/render.odin` |
 | 10 | Rendering | `render/render.odin` |
 
@@ -150,7 +164,7 @@ these are settled:
 - **Is `intent` one component or several?** One, for now. Nothing writes it
   from two sources yet, so the fight the spec anticipates has not happened. When
   it does, layered intent with priority is the same shape as the animation
-  command resolution already in `animation.odin`.
+  command resolution already in `sys_animation.odin`.
 - **Where does collision correction belong?** Inline in the collision system.
   It is axis-separated and about forty lines; splitting it into a resolution
   pass would currently buy nothing but a second traversal.

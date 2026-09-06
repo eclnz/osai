@@ -13,7 +13,7 @@ Status :: struct {
 	health: ecs.Sparse_Set(Health),
 }
 
-Life_Snapshot :: struct {
+Status_Snapshot :: struct {
 	health: Health,
 }
 
@@ -34,12 +34,12 @@ status_load :: proc(r: ^serial.Reader, st: ^Status) -> bool {
 	return true
 }
 
-status_capture :: proc(st: ^Status, e: ecs.Entity, snap: ^Life_Snapshot) -> Component_Flags {
+status_capture :: proc(st: ^Status, e: ecs.Entity, snap: ^Status_Snapshot) -> Component_Flags {
 	present: Component_Flags
 	if v := ecs.get(&st.health, e); v != nil {snap.health = v^;present += {.Health}}
 	return present
 }
 
-status_restore :: proc(st: ^Status, e: ecs.Entity, snap: Life_Snapshot, present: Component_Flags) {
+status_restore :: proc(st: ^Status, e: ecs.Entity, snap: Status_Snapshot, present: Component_Flags) {
 	if .Health in present {ecs.add(&st.health, e, snap.health)}
 }

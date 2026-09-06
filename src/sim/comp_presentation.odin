@@ -12,7 +12,7 @@ import "../serial"
 // rectangle, no sheet dimensions, no flip flag. Those are the renderer's, and
 // `Facing` is spatial, not presentational.
 //
-// `Animation_Id` and `Animation_State` are declared in animation.odin, with
+// `Animation_Id` and `Animation_State` are declared in sys_animation.odin, with
 // the definition table and the system that drives them.
 
 Texture_Id :: enum u8 {

@@ -53,7 +53,7 @@ Dormant_Entity :: struct {
 	using presentation: Presentation_Snapshot,
 
 	using control:      Control_Snapshot,
-	using status:         Life_Snapshot,
+	using status:         Status_Snapshot,
 	using items:        Items_Snapshot,
 	using combat:       Combat_Snapshot,
 }

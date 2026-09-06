@@ -65,7 +65,7 @@ events_destroy :: proc(q: ^Event_Queues) {
 	q^ = {}
 }
 
-// Note that there is no clear-everything procedure: each drain in drains.odin
+// Note that there is no clear-everything procedure: each drain in sys_drains.odin
 // clears the one queue it owns, so an append made *after* that drain survives
 // to the next fixed step instead of being swept away. Sounds are drained by
 // the presentation layer once per frame rather than per fixed step.

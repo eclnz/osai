@@ -7,8 +7,8 @@ or Go and wants to know what is different here.
 ## Packages are directories
 
 A package is every `.odin` file in one directory. There are no header files and
-no per-file imports of siblings: `sim/drains.odin` calls `command_animation`
-from `sim/animation.odin` with no ceremony, because they are the same package.
+no per-file imports of siblings: `sim/sys_drains.odin` calls `command_animation`
+from `sim/sys_animation.odin` with no ceremony, because they are the same package.
 
 Imports are paths, and the last element is the name you use:
 
@@ -44,7 +44,7 @@ add :: proc(s: ^Sparse_Set($T), e: Entity, value: T) { ... }
 `$T` in the *procedure* is inferred from the argument, so call sites read as if
 it were an ordinary function: `ecs.add(&s.position, e, Vec2{0, 0})`.
 
-`take :: proc(r: ^Reader, $T: typeid) -> (T, bool)` in `src/sim/save.odin`
+`take :: proc(r: ^Reader, $T: typeid) -> (T, bool)` in `src/serial/serial.odin`
 passes the type explicitly instead — `take(r, u32)` — because there is no
 argument to infer it from.
 
@@ -55,7 +55,7 @@ no vector library here:
 
 ```odin
 Vec2 :: [2]f32
-pos += vel^ * dt                       // sim/systems_control.odin
+pos += vel^ * dt                       // sim/sys_control.odin
 render_position = prev + (pos - prev) * alpha   // render/render.odin
 ```
 
@@ -83,14 +83,14 @@ tile_definitions := [Tile]Tile_Definition {
 ```
 
 Add a variant to `Tile` and the compiler makes you fill in the row. See
-`src/world/tiles.odin` and `animation_definitions` in `src/sim/animation.odin`.
+`src/world/tiles.odin` and `animation_definitions` in `src/sim/comp_animation.odin`.
 
 `.Empty` with no prefix is an implicit enum selector: the type is known from
 context, so the enum name is not repeated.
 
 ## bit_set
 
-`Component_Flags :: bit_set[Component_Flag; u32]` in `src/sim/streaming.odin` is
+`Component_Flags :: bit_set[Component_Flag; u32]` in `src/sim/dormant.odin` is
 a set of enum values in one `u32`, with set operators:
 
 ```odin
@@ -179,7 +179,7 @@ Also note the two range forms: `..<` is half-open, `..=` is inclusive.
 
 ## transmute and raw bytes
 
-`transmute` reinterprets bits without changing them. `src/sim/save.odin` uses it
+`transmute` reinterprets bits without changing them. `src/serial/serial.odin` uses it
 to view any value as its bytes:
 
 ```odin

@@ -3,7 +3,7 @@ package sim
 import "../world"
 
 // Package vocabulary. Every component type now lives in its group's file -
-// spatial.odin, control.odin, status.odin, presentation.odin, inventory.odin -
+// comp_spatial.odin, comp_control.odin, comp_status.odin, comp_presentation.odin, comp_items.odin -
 // or, for animation, alongside the system that drives it. What is left is the
 // handful of things that belong to no group.
 //

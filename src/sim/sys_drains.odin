@@ -4,7 +4,7 @@ import "../ecs"
 
 // Each queue is drained by exactly one procedure, and each drain clears the
 // queue it owns. Anything appended *after* its drain - by a later system in
-// the step, such as `consequences_system` in systems_status.odin - survives to
+// the step, such as `consequences_system` in sys_consequences.odin - survives to
 // be drained on the next fixed step rather than being silently dropped.
 //
 // Everything in this file consumes a queue. A pass that reads component arrays
