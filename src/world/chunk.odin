@@ -6,8 +6,8 @@ package world
 CHUNK_TILES :: 32
 CHUNK_AREA :: CHUNK_TILES * CHUNK_TILES
 
-Chunk_Coord :: [2]i32
-Tile_Coord :: [2]i32
+Chunk_Coord :: distinct [2]i32
+Tile_Coord :: distinct [2]i32
 
 Chunk :: struct {
 	coord: Chunk_Coord,

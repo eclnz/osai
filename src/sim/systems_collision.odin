@@ -84,7 +84,11 @@ sweep_axis :: proc(
 collision_system :: proc(s: ^State, dt: f32) {
 	terrain_collision(s)
 	hazard_damage(s, dt)
-	entity_collision(s)
+
+	// One grid, rebuilt after terrain resolution so it reflects final
+	// positions, and shared by every entity-vs-entity interaction.
+	bp := broadphase_build(s)
+	entity_collision(s, &bp)
 }
 
 // Entity vs terrain, axis at a time. X is resolved against the entity's
@@ -171,12 +175,17 @@ hazard_damage :: proc(s: ^State, dt: f32) {
 // entities with an item slot. Neither array knows about the other's meaning -
 // the pairing lives here, in the one system that cares.
 //
-// This is the naive product of the two arrays. There is no broadphase yet;
-// the spatial grid the spec puts in step 0 is not built.
-entity_collision :: proc(s: ^State) {
+// Pairing is by component presence, not by kind: a collector is anything with
+// an inventory, an item is anything with an item slot, and neither array knows
+// about the other's meaning. Candidates come from the shared broadphase, so a
+// new interaction - an arrow against anything with health, say - is a new
+// system asking the same grid, not another loop over two arrays.
+entity_collision :: proc(s: ^State, bp: ^Broadphase) {
 	if len(s.items.item.dense) == 0 || len(s.items.inventory.dense) == 0 {
 		return
 	}
+
+	near := make([dynamic]u32, context.temp_allocator)
 
 	for _, ci in s.items.inventory.dense {
 		collector := s.items.inventory.owners[ci]
@@ -187,15 +196,22 @@ entity_collision :: proc(s: ^State) {
 		}
 		c_box := aabb_of(c_pos^, c_col^)
 
-		for slot, ii in s.items.item.dense {
-			item_entity := s.items.item.owners[ii]
-			i_pos := ecs.get(&s.spatial.position, item_entity)
-			i_col := ecs.get(&s.spatial.collider, item_entity)
-			if i_pos == nil || i_col == nil {
+		clear(&near)
+		broadphase_query(bp, c_box, &near)
+
+		for idx in near {
+			item_entity := bp.items[idx]
+			if item_entity == collector {
 				continue
 			}
-			if !overlaps(c_box, aabb_of(i_pos^, i_col^)) {
+			// Overlap first: it is a compare against a box already in hand,
+			// where the item test below is a sparse lookup.
+			if !overlaps(c_box, bp.boxes[idx]) {
 				continue
+			}
+			slot := ecs.get(&s.items.item, item_entity)
+			if slot == nil {
+				continue // near, overlapping, but not a pickup
 			}
 			append(&s.events.pickups, Pickup_Event{
 				collector   = collector,

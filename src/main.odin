@@ -20,18 +20,10 @@ Options :: struct {
 	width:    i32,
 	height:   i32,
 	load:     string,
-	// Windowed smoke test: run this many frames and quit. 0 means run until
-	// the window is closed.
 	frames:     int,
 	screenshot: string,
-	// Drop the vsync hint so the frame rate reports actual capacity rather
-	// than the display's refresh rate. Measurement only - not a play mode.
 	novsync: bool,
-	// Load test: spawn this many extra entities before the headless run and
-	// hold the player still, so residency stays put and the tick cost is
-	// measured against a stable population.
 	entities: int,
-	// Per-system breakdown instead of a single tick number.
 	profile: bool,
 }
 

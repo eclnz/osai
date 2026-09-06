@@ -20,6 +20,7 @@ Profile :: struct {
 	integration:  Stopwatch,
 	terrain:      Stopwatch,
 	hazard:       Stopwatch,
+	broadphase:   Stopwatch,
 	entity_hit:   Stopwatch,
 	facing:       Stopwatch,
 	drain_damage: Stopwatch,
@@ -61,7 +62,8 @@ profile :: proc(s: ^sim.State, ticks: int) -> Profile {
 		// collision_system's three passes, timed separately
 		begin(&p.terrain);sim.terrain_collision(s);end(&p.terrain)
 		begin(&p.hazard);sim.hazard_damage(s, dt);end(&p.hazard)
-		begin(&p.entity_hit);sim.entity_collision(s);end(&p.entity_hit)
+		begin(&p.broadphase);bp := sim.broadphase_build(s);end(&p.broadphase)
+		begin(&p.entity_hit);sim.entity_collision(s, &bp);end(&p.entity_hit)
 
 		begin(&p.facing);sim.facing_system(s, dt);end(&p.facing)
 		begin(&p.drain_damage);sim.drain_damage(s);end(&p.drain_damage)
@@ -91,6 +93,7 @@ samples :: proc(p: Profile, allocator := context.allocator) -> [dynamic]Sample {
 	add(&out, "integration", p.integration)
 	add(&out, "terrain_collision", p.terrain)
 	add(&out, "hazard_damage", p.hazard)
+	add(&out, "broadphase", p.broadphase)
 	add(&out, "entity_collision", p.entity_hit)
 	add(&out, "facing", p.facing)
 	add(&out, "drain_damage", p.drain_damage)
