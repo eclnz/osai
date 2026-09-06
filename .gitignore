@@ -1,0 +1,9 @@
+# Build output
+/bin/
+/osai
+/*.bin
+/saves/
+
+# Editor / OS
+.DS_Store
+*.swp
