@@ -163,9 +163,16 @@ draw_terrain :: proc(r: ^Renderer, s: ^sim.State) {
 	lo := world.tile_coord_of_world({view.x, view.y})
 	hi := world.tile_coord_of_world({view.x + view.width, view.y + view.height})
 
+	// One cursor for the whole scan. `tile_at` resolves the chunk from scratch
+	// for every tile - a map lookup each - where the cursor keeps the last one
+	// it resolved. The inner loop runs along x, so it stays inside the same
+	// chunk for 32 tiles at a time. Every other tile-scanning loop in the
+	// codebase already does this; this one was the exception.
+	cur := world.cursor(&s.terrain)
+
 	for ty in lo.y ..= hi.y {
 		for tx in lo.x ..= hi.x {
-			tile := world.tile_at(&s.terrain, {tx, ty})
+			tile := world.cursor_tile_at(&cur, {tx, ty})
 			if tile == .Empty {
 				continue
 			}
