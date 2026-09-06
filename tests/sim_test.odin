@@ -330,3 +330,70 @@ a_rolling_fireball_slows_to_a_stop :: proc(t: ^testing.T) {
 	for _ in 0 ..< 120 {sim.fixed_step(&s)}
 	testing.expect_value(t, ecs.get(&s.spatial.velocity, e).x, 0)
 }
+
+// The README claims a seed and a tick count fully describe a run. They did
+// not: several passes iterated a `map`, and Odin seeds a map's hash from the
+// address its data was allocated at, so iteration order - and therefore the
+// order chunks load, the order entity slots are handed out, and the order the
+// dense arrays end up in - varied between runs of the same binary.
+//
+// Both states are kept alive at once, which is the point: run one and then the
+// other and the second tends to be handed the address the first just freed,
+// giving it the same map seed and hiding the bug. Held together they get
+// different addresses, which is the condition that used to make them diverge.
+@(test)
+a_seed_and_a_tick_count_fully_describe_a_run :: proc(t: ^testing.T) {
+	SEED :: u64(20250906)
+	TICKS :: 900
+
+	begin :: proc(s: ^sim.State) {
+		sim.state_init(s, SEED)
+		surface := world.surface_height(SEED, 0)
+		spawn_y := f32(surface - 3) * world.TILE_SIZE
+		sim.streaming_update(s, {0, spawn_y})
+		sim.spawn_player(s, {0, spawn_y})
+		sim.streaming_update(s, {0, spawn_y})
+	}
+
+	// Walking is what makes this a test: it drags the residency window across
+	// chunk boundaries, so chunks load and unload and entities stream in and
+	// out.
+	step_all :: proc(s: ^sim.State) {
+		for i in 0 ..< TICKS {
+			pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})
+			sim.streaming_update(s, pos)
+			if intent := ecs.get(&s.control.intent, s.player); intent != nil {
+				intent.horizontal = 1
+				intent.jump_requested = i % 60 == 0
+			}
+			sim.fixed_step(s)
+			free_all(context.temp_allocator)
+		}
+	}
+
+	// Summed, not chained, so this compares where the entities are rather than
+	// what order the arrays happen to hold them in.
+	digest_of :: proc(s: ^sim.State) -> (digest: u64) {
+		for p, i in s.spatial.position.dense {
+			e := s.spatial.position.owners[i]
+			h := u64(e.index) * 0x9e3779b97f4a7c15
+			h ~= u64(transmute(u32)p.x) * 0xbf58476d1ce4e5b9
+			h ~= u64(transmute(u32)p.y) * 0x94d049bb133111eb
+			digest += h
+		}
+		return
+	}
+
+	a, b: sim.State
+	begin(&a)
+	begin(&b)
+	defer sim.state_destroy(&a)
+	defer sim.state_destroy(&b)
+
+	step_all(&a)
+	step_all(&b)
+
+	testing.expect_value(t, digest_of(&b), digest_of(&a))
+	testing.expect_value(t, b.entities.live_count, a.entities.live_count)
+	testing.expect(t, a.entities.live_count > 1, "the run should have streamed entities in")
+}
