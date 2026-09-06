@@ -71,13 +71,23 @@ The numbering matches the spec.
 | 4 | Integration → `position` | `sim/systems_control.odin` |
 | 5 | Collision → `grounded`, queues | `sim/systems_collision.odin` |
 | 6 | Drain damage, pickups, spawns | `sim/drains.odin` |
-| 7 | Consequences (death) | `sim/drains.odin` |
+| 7 | Consequences (death) | `sim/systems_status.odin` |
 | 8 | Animation → `sprite` | `sim/animation.odin` |
 | 9 | Interpolation → `render_position` | `render/render.odin` |
 | 10 | Rendering | `render/render.odin` |
 
 Steps 2–7 run inside `sim.fixed_step`; `sim.advance` runs it as many times as
 the accumulator owes, capped, and returns the leftover fraction for step 9.
+
+The step itself is data: `sim.SCHEDULE` in `sim/step.odin` is the ordered list
+of `{name, proc}`, and `fixed_step` walks it. So does the profiler, which is
+the point — it used to keep a hand-written copy of the order and could drift
+from it. Adding a system is one row, and it is profiled from the moment it is
+added.
+
+Entity-vs-entity collision goes through a broadphase grid (`sim/broadphase.odin`),
+rebuilt each step into one hashed cell table that every interaction pass
+queries. It is not the naive product of two arrays.
 
 ## Things worth knowing before reading the code
 
@@ -103,6 +113,14 @@ the player wanders into them — `generation_is_seeded_and_order_independent`
 checks exactly that. Population is separate and runs once per chunk ever, or
 walking away and back would duplicate every creature.
 
+**A seed and a tick count really do describe a run.** They did not until
+recently: several passes iterated a `map`, and Odin seeds a map's hash from the
+address its data was allocated at, so chunk order — and with it the order
+entity slots are handed out — varied between runs of the same binary.
+`a_seed_and_a_tick_count_fully_describe_a_run` in `tests/sim_test.odin` holds
+two states alive at once, which is what makes their maps land at different
+addresses, and checks they agree.
+
 **Saving is writing the arrays out**, because they were already flat. The
 round-trip test restores a run and then steps both copies 60 more times and
 compares positions.
@@ -111,8 +129,6 @@ compares positions.
 
 Named because "not built" and "overlooked" should not look the same:
 
-- **No spatial grid.** Step 0 in the spec rebuilds one; entity-vs-entity
-  collision here is the naive product of the collector and item arrays.
 - **Terrain is drawn one quad per tile**, not as batched chunk meshes.
 - **No art and no audio.** `texture_table` exists and is empty; entities draw
   as tinted boxes with a marker showing the current animation frame and
