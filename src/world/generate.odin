@@ -14,6 +14,7 @@ Spawn_Kind :: enum u8 {
 	Walker,
 	Coin,
 	Fireball,
+	Rock,
 }
 
 Spawn_Request :: struct {

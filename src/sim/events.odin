@@ -37,6 +37,7 @@ Sound_Id :: enum u8 {
 	None,
 	Jump,
 	Fire,
+	Break,
 	Hurt,
 	Pickup,
 	Death,

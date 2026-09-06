@@ -24,6 +24,8 @@ spawn :: proc(s: ^State, req: Spawn_Request) -> ecs.Entity {
 		return spawn_walker(s, req.position)
 	case .Coin:
 		return spawn_coin(s, req.position)
+	case .Rock:
+		return spawn_rock(s, req.position)
 	case .Fireball:
 		// A spawn request carries a position and nothing else, so one arriving
 		// from generation or from a save gets a fireball that simply drops.
@@ -45,6 +47,7 @@ spawn_player :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 	ecs.add(&s.presentation.animation, e, Animation_State{})
 	ecs.add(&s.items.inventory, e, Inventory{})
 	ecs.add(&s.combat.weapon, e, Weapon{})
+	ecs.add(&s.control.digger, e, Digger{reach = 3 * TILE_SIZE, speed = 1})
 	s.player = e
 	return e
 }
@@ -68,6 +71,15 @@ spawn_walker :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 spawn_coin :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 	e := spawn_base(s, .Coin, position)
 	ecs.add(&s.items.item, e, Item_Slot{item = .Coin, count = 1})
+	return e
+}
+
+// What a broken block leaves behind. Identical to a coin but for the row it
+// comes from and the item in the slot - which is the point: neither the mining
+// system nor the pickup drain has a word to say about rocks specifically.
+spawn_rock :: proc(s: ^State, position: Vec2) -> ecs.Entity {
+	e := spawn_base(s, .Rock, position)
+	ecs.add(&s.items.item, e, Item_Slot{item = .Rock, count = 1})
 	return e
 }
 

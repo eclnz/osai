@@ -11,11 +11,15 @@ import rl "vendor:raylib"
 // component the AI system writes for everything else, which is why neither
 // has to know the other exists.
 
-input_system :: proc(s: ^sim.State) {
+// `aim` is taken in world units, which is why the camera has to come in: the
+// conversion from a screen pixel is the renderer's business, and `sim` never
+// learns that a screen exists.
+input_system :: proc(s: ^sim.State, aim: sim.Vec2) {
 	intent := ecs.get(&s.control.intent, s.player)
 	if intent == nil {
 		return
 	}
+	intent.aim = aim
 
 	horizontal := f32(0)
 	if rl.IsKeyDown(.LEFT) || rl.IsKeyDown(.A) {horizontal -= 1}
@@ -28,9 +32,13 @@ input_system :: proc(s: ^sim.State) {
 	if rl.IsKeyPressed(.SPACE) || rl.IsKeyPressed(.UP) || rl.IsKeyPressed(.W) {
 		intent.jump_requested = true
 	}
-	if rl.IsKeyPressed(.F) || rl.IsMouseButtonPressed(.LEFT) {
+	if rl.IsKeyPressed(.F) || rl.IsMouseButtonPressed(.RIGHT) {
 		intent.fire_requested = true
 	}
+
+	// Held, not latched: digging is a thing you keep doing. Nothing consumes
+	// this, so it is written every frame - including the frame it goes false.
+	intent.dig_requested = rl.IsMouseButtonDown(.LEFT)
 }
 
 // Called after the fixed steps have run. Clearing only once a step has

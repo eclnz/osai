@@ -17,6 +17,7 @@ Profile :: struct {
 	streaming:    Stopwatch,
 	ai:           Stopwatch,
 	weapon:       Stopwatch,
+	mining:       Stopwatch,
 	movement:     Stopwatch,
 	projectile:   Stopwatch,
 	integration:  Stopwatch,
@@ -61,6 +62,7 @@ profile :: proc(s: ^sim.State, ticks: int) -> Profile {
 
 		begin(&p.ai);sim.ai_system(s, dt);end(&p.ai)
 		begin(&p.weapon);sim.weapon_system(s, dt);end(&p.weapon)
+		begin(&p.mining);sim.mining_system(s, dt);end(&p.mining)
 		begin(&p.movement);sim.movement_system(s, dt);end(&p.movement)
 		begin(&p.projectile);sim.projectile_system(s, dt);end(&p.projectile)
 		begin(&p.integration);sim.integration_system(s, dt);end(&p.integration)
@@ -98,6 +100,7 @@ samples :: proc(p: Profile, allocator := context.allocator) -> [dynamic]Sample {
 	add(&out, "streaming", p.streaming)
 	add(&out, "ai", p.ai)
 	add(&out, "weapon", p.weapon)
+	add(&out, "mining", p.mining)
 	add(&out, "movement", p.movement)
 	add(&out, "projectile", p.projectile)
 	add(&out, "integration", p.integration)

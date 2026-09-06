@@ -110,7 +110,7 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 		sim.streaming_update(s, player_pos)
 
 		// 1. input - devices to intent
-		input_system(s)
+		input_system(s, render.mouse_world(&r))
 		handle_hotkeys(s)
 
 		// 2..7. fixed steps, repeated until caught up

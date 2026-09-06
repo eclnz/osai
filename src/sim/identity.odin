@@ -82,6 +82,12 @@ entity_definitions := [Entity_Kind]Entity_Definition {
 		tint     = {230, 196, 84, 255},
 		depth    = 4,
 	},
+	.Rock = {
+		collider = {8, 8},
+		texture  = .Item,
+		tint     = {150, 148, 142, 255},
+		depth    = 4,
+	},
 	// A fireball has no `move_speed` or `jump_speed`: it is not driven by
 	// intent, so `movement_system` never sees it. What it does need from this
 	// row is gravity, which `projectile_system` reads from here rather than

@@ -23,6 +23,7 @@ Component_Flag :: enum u8 {
 	Kind,
 	Movement,
 	AI,
+	Digger,
 	Health,
 	Appearance,
 	Animation,

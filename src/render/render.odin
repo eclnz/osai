@@ -103,8 +103,33 @@ draw :: proc(r: ^Renderer, s: ^sim.State) {
 
 	rl.BeginMode2D(r.camera)
 	draw_terrain(r, s)
+	draw_dig_target(r, s)
 	draw_entities(r, s)
 	rl.EndMode2D()
+}
+
+// The block the player is working on, and how far through it they are. Read
+// straight off the digger component - the simulation says what it is doing and
+// this draws it, which is the same direction everything else here runs in.
+draw_dig_target :: proc(r: ^Renderer, s: ^sim.State) {
+	digger := ecs.get(&s.control.digger, s.player)
+	if digger == nil || digger.progress <= 0 {
+		return
+	}
+	tile := world.tile_at(&s.terrain, digger.target)
+	hardness := world.tile_definitions[tile].hardness
+	if hardness <= 0 {
+		return
+	}
+
+	x := i32(digger.target.x) * world.TILE_SIZE
+	y := i32(digger.target.y) * world.TILE_SIZE
+	rl.DrawRectangleLines(x, y, world.TILE_SIZE, world.TILE_SIZE, {240, 240, 240, 200})
+
+	// A bar across the bottom of the tile, because a crack overlay needs art
+	// and this needs none.
+	filled := i32(f32(world.TILE_SIZE) * min(digger.progress / hardness, 1))
+	rl.DrawRectangle(x, y + world.TILE_SIZE - 3, filled, 3, {240, 220, 120, 220})
 }
 
 // Terrain is drawn straight from the tile arrays, one quad per visible tile.
@@ -195,6 +220,17 @@ draw_placeholder :: proc(item: Draw_Item) {
 	marker_x := i32(item.position.x) + (item.flip_x ? i32(item.size.x) - 3 : 1)
 	rl.DrawRectangle(marker_x, i32(item.position.y) + 1, 2, 2 + i32(item.frame), {20, 20, 24, 255})
 	rl.DrawRectangle(i32(item.position.x) + 1, i32(item.position.y + item.size.y) - 3, 2 + i32(item.row), 2, {20, 20, 24, 255})
+}
+
+// Where a screen pixel lands in the world. The one place that conversion
+// happens, so that everything downstream - aiming, picking, debug probes -
+// talks in world units.
+screen_to_world :: proc(r: ^Renderer, screen: sim.Vec2) -> sim.Vec2 {
+	return rl.GetScreenToWorld2D(screen, r.camera)
+}
+
+mouse_world :: proc(r: ^Renderer) -> sim.Vec2 {
+	return screen_to_world(r, rl.GetMousePosition())
 }
 
 visible_world_rect :: proc(r: ^Renderer) -> rl.Rectangle {

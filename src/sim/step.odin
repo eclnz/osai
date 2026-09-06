@@ -15,6 +15,7 @@ fixed_step :: proc(s: ^State) {
 
 	ai_system(s, dt)
 	weapon_system(s, dt)
+	mining_system(s, dt)
 	movement_system(s, dt)
 	projectile_system(s, dt)
 	integration_system(s, dt)
