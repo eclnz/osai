@@ -33,6 +33,9 @@ Tile_Definition :: struct {
 // Indexed by type ID, one entry per type. Not saved - this is the game, not
 // the state. Odin's enumerated arrays give us the "indexed by type ID" the
 // spec asks for, with the compiler checking that every case is filled in.
+// `@(rodata)` puts it in read-only memory - see entity_definitions for what
+// that does and does not promise.
+@(rodata)
 tile_definitions := [Tile]Tile_Definition {
 	.Empty = {solid = false, hazard = 0, hardness = 0, tint = {0, 0, 0, 0}},
 	.Dirt  = {solid = true, hazard = 0, hardness = 0.35, tint = {104, 76, 52, 255}},

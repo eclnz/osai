@@ -43,7 +43,8 @@ Animation_Definition :: struct {
 	loops:      bool,
 }
 
-// Indexed by type ID, one entry per type. Not saved.
+// Indexed by type ID, one entry per type. Not saved - see entity_definitions.
+@(rodata)
 animation_definitions := [Animation_Id]Animation_Definition {
 	.Idle  = {frames = 4, frame_time = 0.20, loops = true},
 	.Run   = {frames = 6, frame_time = 0.08, loops = true},
