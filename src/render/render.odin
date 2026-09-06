@@ -14,7 +14,24 @@ import rl "vendor:raylib"
 // the interpolated position even by accident.
 
 Renderer :: struct {
-	render_position: ecs.Sparse_Set(sim.Vec2),
+	// Parallel to `sim.State.spatial.position.dense`: row i is the
+	// interpolated position of whoever owns position.dense[i].
+	//
+	// This was a sparse set, which cost more than it looks. `set_clear` writes
+	// NO_INDEX across the whole sparse table, and that table is sized by the
+	// highest entity slot ever allocated - and streaming never frees a slot,
+	// because handles to dormant entities must stay valid. So the per-frame
+	// clear grew with how far the player had walked, at constant entity count,
+	// and never shrank.
+	//
+	// Nothing needed the lookup anyway: this is built in dense order and read
+	// back in dense order. The one by-entity read, the camera's target in
+	// `follow`, is a single `dense_index` call.
+	//
+	// Valid only between an `interpolate` and the next structural change to
+	// the position array - which is the whole of the render phase, since
+	// `sim` has finished stepping by then.
+	render_position: [dynamic]sim.Vec2,
 	textures:        [sim.Texture_Id]rl.Texture2D,
 	camera:          rl.Camera2D,
 	draw_list:       [dynamic]Draw_Item,
@@ -61,7 +78,7 @@ renderer_init :: proc(r: ^Renderer, zoom: f32 = 2.5) {
 }
 
 renderer_destroy :: proc(r: ^Renderer) {
-	ecs.set_destroy(&r.render_position)
+	delete(r.render_position)
 	delete(r.draw_list)
 	for texture in r.textures {
 		if texture.id != 0 {
@@ -76,17 +93,22 @@ renderer_destroy :: proc(r: ^Renderer) {
 interpolate :: proc(r: ^Renderer, s: ^sim.State, alpha: f32) {
 	// Rebuilt from scratch each frame, so entities that were destroyed or
 	// streamed out simply do not reappear. Nothing has to remove them.
-	ecs.set_clear(&r.render_position)
+	resize(&r.render_position, len(s.spatial.position.dense))
 
 	for pos, i in s.spatial.position.dense {
 		e := s.spatial.position.owners[i]
 		prev := ecs.get_or(&s.spatial.previous_position, e, pos)
-		ecs.add(&r.render_position, e, prev + (pos - prev) * alpha)
+		r.render_position[i] = prev + (pos - prev) * alpha
 	}
 }
 
 follow :: proc(r: ^Renderer, s: ^sim.State, smoothing: f32 = 1) {
-	target := ecs.get_or(&r.render_position, s.player, sim.Vec2{})
+	// A player with no position leaves the target at the origin, which is what
+	// the sparse-set lookup this replaces fell back to.
+	target := sim.Vec2{}
+	if d, ok := ecs.dense_index(&s.spatial.position, s.player); ok {
+		target = r.render_position[d]
+	}
 	if smoothing >= 1 {
 		r.camera.target = target
 	} else {
@@ -162,8 +184,9 @@ draw_terrain :: proc(r: ^Renderer, s: ^sim.State) {
 draw_entities :: proc(r: ^Renderer, s: ^sim.State) {
 	clear(&r.draw_list)
 
-	for pos, i in r.render_position.dense {
-		e := r.render_position.owners[i]
+	// Row i belongs to whoever owns position.dense[i] - see `render_position`.
+	for pos, i in r.render_position {
+		e := s.spatial.position.owners[i]
 
 		appearance := ecs.get(&s.presentation.appearance, e)
 		if appearance == nil {
