@@ -210,7 +210,7 @@ draw_entities :: proc(r: ^Renderer, s: ^sim.State) {
 			size     = collider.size,
 			animated = anim != nil,
 			row      = anim != nil ? int(anim.current) : 0,
-			frame    = anim != nil ? anim.frame : 0,
+			frame    = anim != nil ? int(anim.frame) : 0,
 			flip_x   = facing < 0,
 			tint     = rl.Color(appearance.tint),
 		})
