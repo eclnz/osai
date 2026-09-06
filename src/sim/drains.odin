@@ -35,6 +35,31 @@ drain_damage :: proc(s: ^State) {
 	clear(&s.events.damage)
 }
 
+// What a hit costs. Runs before `drain_damage`, so a hit landed this tick is
+// paid for in the same tick rather than the next one.
+//
+// The damage still goes through the damage queue rather than being written
+// here: health has exactly one writer, and a fireball is not a reason to make
+// it two. What this drain owns is the rest of the consequence - the end of the
+// projectile, and whatever an impact grows to mean later.
+drain_hits :: proc(s: ^State) {
+	for event in s.events.hits {
+		// Two targets can be reached in one tick by one projectile only if it
+		// was already spent by an earlier event; a stale handle is the normal
+		// way to find that out, not an error.
+		if !ecs.entity_is_alive(&s.entities, event.projectile) {
+			continue
+		}
+		append(&s.events.damage, Damage_Event{
+			target = event.target,
+			amount = event.damage,
+			source = .Projectile,
+		})
+		entity_destroy(s, event.projectile)
+	}
+	clear(&s.events.hits)
+}
+
 drain_pickups :: proc(s: ^State) {
 	for event in s.events.pickups {
 		// Two collectors can overlap the same item in one step; the first

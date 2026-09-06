@@ -271,3 +271,25 @@ a_fireball_expires_on_its_own :: proc(t: ^testing.T) {
 	testing.expect(t, !ecs.entity_is_alive(&s.entities, e))
 	testing.expect(t, !ecs.has(&s.spatial.position, e), "and leaves no component behind")
 }
+
+@(test)
+a_rolling_fireball_slows_to_a_stop :: proc(t: ^testing.T) {
+	s: sim.State
+	flat_state(&s)
+	defer sim.state_destroy(&s)
+
+	// Dropped just above the floor with a flat run, so it settles into a roll
+	// within a step or two rather than bouncing across the room first.
+	e := sim.spawn_fireball(&s, {40, f32(10 * world.TILE_SIZE) - 8}, {200, 0}, ecs.NIL)
+
+	for _ in 0 ..< 10 {sim.fixed_step(&s)}
+	rolling := ecs.get(&s.spatial.velocity, e).x
+	testing.expect(t, rolling > 0, "it should still be moving along the ground")
+
+	sim.fixed_step(&s)
+	testing.expect(t, ecs.get(&s.spatial.velocity, e).x < rolling, "rolling should shed speed")
+
+	// And it comes to rest rather than creeping forever.
+	for _ in 0 ..< 120 {sim.fixed_step(&s)}
+	testing.expect_value(t, ecs.get(&s.spatial.velocity, e).x, 0)
+}

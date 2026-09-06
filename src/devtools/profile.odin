@@ -26,6 +26,7 @@ Profile :: struct {
 	entity_hit:   Stopwatch,
 	projectile_hit: Stopwatch,
 	facing:       Stopwatch,
+	drain_hits:   Stopwatch,
 	drain_damage: Stopwatch,
 	drain_pick:   Stopwatch,
 	drain_spawn:  Stopwatch,
@@ -72,6 +73,7 @@ profile :: proc(s: ^sim.State, ticks: int) -> Profile {
 		begin(&p.projectile_hit);sim.projectile_collision(s, &bp);end(&p.projectile_hit)
 
 		begin(&p.facing);sim.facing_system(s, dt);end(&p.facing)
+		begin(&p.drain_hits);sim.drain_hits(s);end(&p.drain_hits)
 		begin(&p.drain_damage);sim.drain_damage(s);end(&p.drain_damage)
 		begin(&p.drain_pick);sim.drain_pickups(s);end(&p.drain_pick)
 		begin(&p.drain_spawn);sim.drain_spawns(s);end(&p.drain_spawn)
@@ -105,6 +107,7 @@ samples :: proc(p: Profile, allocator := context.allocator) -> [dynamic]Sample {
 	add(&out, "entity_collision", p.entity_hit)
 	add(&out, "projectile_collision", p.projectile_hit)
 	add(&out, "facing", p.facing)
+	add(&out, "drain_hits", p.drain_hits)
 	add(&out, "drain_damage", p.drain_damage)
 	add(&out, "drain_pickups", p.drain_pick)
 	add(&out, "drain_spawns", p.drain_spawn)

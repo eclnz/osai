@@ -251,16 +251,16 @@ entity_collision :: proc(s: ^State, bp: ^Broadphase) {
 // anything with health" the comment above anticipated: a second small system
 // asking the same grid, not another loop over two arrays.
 //
-// A hit is one damage event and the end of the projectile. Spent projectiles
-// are collected and destroyed after the loop, because destroying inline would
-// swap-and-pop the array being iterated.
+// Detection only. What a hit costs - the damage, the end of the projectile -
+// is `drain_hits`, exactly as `entity_collision` above detects a pickup and
+// leaves `drain_pickups` to move the item and destroy it. This pass has no
+// business writing health or destroying entities, and it does not.
 projectile_collision :: proc(s: ^State, bp: ^Broadphase) {
 	if len(s.combat.projectile.dense) == 0 {
 		return
 	}
 
 	near := make([dynamic]u32, context.temp_allocator)
-	spent := make([dynamic]ecs.Entity, context.temp_allocator)
 
 	for proj, pi in s.combat.projectile.dense {
 		e := s.combat.projectile.owners[pi]
@@ -287,17 +287,13 @@ projectile_collision :: proc(s: ^State, bp: ^Broadphase) {
 			if !ecs.has(&s.status.health, target) {
 				continue
 			}
-			append(&s.events.damage, Damage_Event{
-				target = target,
-				amount = proj.damage,
-				source = .Projectile,
+			append(&s.events.hits, Hit_Event{
+				projectile = e,
+				target     = target,
+				damage     = proj.damage,
+				position   = p_box.min + p_col.size * 0.5,
 			})
-			append(&spent, e)
 			break
 		}
-	}
-
-	for e in spent {
-		entity_destroy(s, e)
 	}
 }

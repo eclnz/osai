@@ -21,6 +21,7 @@ fixed_step :: proc(s: ^State) {
 	collision_system(s, dt)
 	facing_system(s, dt)
 
+	drain_hits(s)
 	drain_damage(s)
 	drain_pickups(s)
 	drain_spawns(s)
