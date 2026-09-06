@@ -251,13 +251,16 @@ entity_collision :: proc(s: ^State, bp: ^Broadphase) {
 		broadphase_query(bp, c_box, &near)
 
 		for idx in near {
-			item_entity := bp.items[idx]
-			if item_entity == collector {
+			// Box first. It is the common rejection - most candidates in a
+			// cell are simply not touching - and it keeps the reject path
+			// inside one array. `bp.items` is a second stream and is only
+			// touched once a candidate actually overlaps; the sparse lookup
+			// below is third, for the same reason.
+			if !overlaps(c_box, bp.boxes[idx]) {
 				continue
 			}
-			// Overlap first: it is a compare against a box already in hand,
-			// where the item test below is a sparse lookup.
-			if !overlaps(c_box, bp.boxes[idx]) {
+			item_entity := bp.items[idx]
+			if item_entity == collector {
 				continue
 			}
 			slot := ecs.get(&s.items.item, item_entity)
@@ -302,11 +305,12 @@ projectile_collision :: proc(s: ^State, bp: ^Broadphase) {
 		broadphase_query(bp, p_box, &near)
 
 		for idx in near {
-			target := bp.items[idx]
-			if target == e || target == proj.owner {
+			// Box first, as in `entity_collision` above.
+			if !overlaps(p_box, bp.boxes[idx]) {
 				continue
 			}
-			if !overlaps(p_box, bp.boxes[idx]) {
+			target := bp.items[idx]
+			if target == e || target == proj.owner {
 				continue
 			}
 			// Damageable is a component question, like everything else here:
