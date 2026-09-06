@@ -3,17 +3,14 @@ package sim
 import "../ecs"
 import "../world"
 
-// Systems are functions that read arrays and write arrays. Each one below
-// says in its comment what it reads and what it writes; that contract is the
-// only thing holding the frame together, because no system calls another.
+// Each system says what it reads and writes. That contract is the only thing
+// holding the frame together, because no system calls another.
 
-// AI - reads world state, writes `intent` for everything that has an
-// `ai` component. The player has no `ai` component, so this loop never sees
-// it: the input system writes the player's intent instead, and neither knows
-// about the other.
+// Reads world state, writes `intent`. The player has no `ai` component, so
+// this loop never sees it - the input system writes the player's intent.
 ai_system :: proc(s: ^State, dt: f32) {
-	// Both probes below are tile queries, and a walker's two probes are almost
-	// always in the same chunk as each other and as the previous walker's.
+	// One cursor for the pass: consecutive walkers are usually in the same
+	// chunk.
 	cur := world.cursor(&s.terrain)
 
 	for &ai, i in s.control.ai.dense {
@@ -33,17 +30,15 @@ ai_system :: proc(s: ^State, dt: f32) {
 			grounded := ecs.get_or(&s.spatial.grounded, e, Grounded{})
 
 			if grounded.on_ground {
-				// Turn around at a wall or at the edge of a ledge. Both
-				// questions are arithmetic against the tile array.
+				// Turn around at a wall or at the edge of a ledge.
 				ahead_x := ai.facing > 0 ? pos.x + col.size.x + 1 : pos.x - 1
 				foot_y := pos.y + col.size.y + 1
 				ahead_tile := world.tile_coord_of_world({ahead_x, pos.y + col.size.y * 0.5})
 				floor_tile := world.tile_coord_of_world({ahead_x, foot_y})
 
-				// Two integer compares against the cached key stand in for
-				// two chunk lookups. A walker spends about twenty ticks inside
-				// the same pair of probe tiles, and mining bumps `edits`, so a
-				// cached answer cannot outlive the terrain it describes.
+				// Two integer compares stand in for two chunk lookups. Mining
+				// bumps `edits`, so a cached answer cannot outlive the terrain
+				// it describes.
 				fresh :=
 					ai.probe_edits == s.terrain.edits &&
 					ai.probe_ahead == ahead_tile &&
@@ -68,9 +63,8 @@ ai_system :: proc(s: ^State, dt: f32) {
 	}
 }
 
-// Movement - reads intent, movement_params and grounded, writes velocity.
-// It does not touch position: that is integration's job, and keeping them
-// apart is what makes the fixed step reorderable.
+// Reads intent, movement params and grounded; writes velocity. It does not
+// touch position - keeping the two apart is what makes the step reorderable.
 movement_system :: proc(s: ^State, dt: f32) {
 	for &intent, i in s.control.intent.dense {
 		e := s.control.intent.owners[i]
@@ -79,8 +73,8 @@ movement_system :: proc(s: ^State, dt: f32) {
 		if mv == nil {
 			continue
 		}
-		// By pointer: the row is shared and immutable, and copying it here
-		// would put 24 bytes on the stack per entity per tick.
+		// By pointer: copying would put 24 bytes on the stack per entity per
+		// tick.
 		params := &entity_definitions[mv.def].movement
 		vel := ecs.get(&s.spatial.velocity, e)
 		if vel == nil {
@@ -95,9 +89,8 @@ movement_system :: proc(s: ^State, dt: f32) {
 
 		if intent.jump_requested && grounded.on_ground {
 			vel.y = -params.jump_speed
-			// Consume the request here, so a held key is one jump and a
-			// jump pressed mid-frame is not applied twice by two catch-up
-			// steps.
+			// Consume it here, so a held key is one jump and two catch-up
+			// steps do not both apply it.
 			intent.jump_requested = false
 			if g := ecs.get(&s.spatial.grounded, e); g != nil {
 				g.on_ground = false
@@ -118,9 +111,9 @@ move_toward :: proc(current, target, max_delta: f32) -> f32 {
 	return current + (delta > 0 ? max_delta : -max_delta)
 }
 
-// Integration - copies position into previous_position, then applies
-// velocity. previous_position exists purely so the renderer can interpolate
-// between two fixed steps; the simulation itself never reads it after this.
+// Copies position into previous_position, then applies velocity.
+// previous_position exists only so the renderer can interpolate between two
+// fixed steps; nothing in the simulation reads it after this.
 integration_system :: proc(s: ^State, dt: f32) {
 	for &pos, i in s.spatial.position.dense {
 		e := s.spatial.position.owners[i]
@@ -134,13 +127,10 @@ integration_system :: proc(s: ^State, dt: f32) {
 	}
 }
 
-// Facing - which way an entity is oriented, from the velocity it actually
-// ended up with. Sticky: it only changes while genuinely moving, so an entity
-// that stops keeps facing the way it was going.
+// Orientation from the velocity the entity actually ended up with. Runs after
+// collision, so that velocity is final.
 //
-// Distinct from `AI_State.facing`, which is patrol *intent* - the direction a
-// walker has decided to head. This is the outcome, it applies to the player
-// too, and it runs after collision so the velocity it reads is final.
+// Distinct from `AI_State.facing`, which is patrol intent rather than outcome.
 facing_system :: proc(s: ^State, dt: f32) {
 	for &facing, i in s.spatial.facing.dense {
 		e := s.spatial.facing.owners[i]

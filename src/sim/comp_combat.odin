@@ -3,17 +3,12 @@ package sim
 import "../ecs"
 import "../serial"
 
-// Things that shoot, and the things they shot.
-//
-// Two sides of one idea, the same way `Items` holds both the inventory and the
-// item lying on the ground: `Weapon` is the capacity to fire, `Projectile` is
-// what is in flight. Neither knows what kind of entity is carrying it - the
-// player has a weapon because `spawn_player` gives it one, and a walker would
-// shoot too the day someone adds the line.
+// `Weapon` is the capacity to fire, `Projectile` what is in flight. Neither
+// knows what is carrying it: the player has a weapon because `spawn_player`
+// gives it one.
 
-// The capacity to fire, and the only thing that rate-limits it. `cooldown` is
-// seconds remaining, counted down by `weapon_system`; a shot is refused while
-// it is above zero, so the fire rate does not depend on how fast the key is
+// Seconds remaining, counted down by `weapon_system`. A shot is refused while
+// it is above zero, so fire rate does not depend on how fast the key is
 // pressed or how many catch-up steps a frame ran.
 Weapon :: struct {
 	cooldown: f32,
@@ -24,13 +19,12 @@ WEAPON_COOLDOWN :: f32(0.35)
 // Muzzle speed, in world units per second.
 FIREBALL_SPEED :: f32(300)
 FIREBALL_DAMAGE :: f32(18)
-// Seconds before it burns out on its own. Without this, every shot that flies
-// off into open sky stays resident forever.
+// Without this, every shot that flies off into open sky stays resident.
 FIREBALL_LIFETIME :: f32(4)
 
 Projectile :: struct {
 	// Excluded from its own damage: a shot fired while running forward spawns
-	// inside the shooter's box and would otherwise hit them on the first tick.
+	// inside the shooter's box.
 	owner:  ecs.Entity,
 	damage: f32,
 	// Seconds left before it expires.
@@ -57,7 +51,7 @@ combat_detach :: proc(c: ^Combat, e: ecs.Entity) {
 	ecs.remove(&c.projectile, e)
 }
 
-// Write order here is the read order in `combat_load`.
+// Write order is the read order in `combat_load`.
 combat_save :: proc(w: ^serial.Writer, c: ^Combat) {
 	serial.put_set(w, &c.weapon)
 	serial.put_set(w, &c.projectile)

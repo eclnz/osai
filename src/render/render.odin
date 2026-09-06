@@ -6,40 +6,30 @@ import "../world"
 import "core:slice"
 import rl "vendor:raylib"
 
-// The renderer reads. It does not write to any simulation array.
+// The renderer reads; it writes to no simulation array.
 //
-// `render_position` lives in this package rather than in `sim.State`, which
-// is the spec's "simulation must never read this" turned into something the
-// compiler enforces: `sim` does not import `render`, so no system can reach
-// the interpolated position even by accident.
+// `render_position` lives here rather than in `sim.State`, which turns the
+// spec's "the simulation must never read this" into something the compiler
+// enforces: `sim` does not import `render`.
 
 Renderer :: struct {
 	// Parallel to `sim.State.spatial.position.dense`: row i is the
-	// interpolated position of whoever owns position.dense[i].
+	// interpolated position of whoever owns position.dense[i]. Valid from an
+	// `interpolate` until the next structural change to that array, which is
+	// the whole render phase.
 	//
-	// This was a sparse set, which cost more than it looks. `set_clear` writes
-	// NO_INDEX across the whole sparse table, and that table is sized by the
-	// highest entity slot ever allocated - and streaming never frees a slot,
-	// because handles to dormant entities must stay valid. So the per-frame
-	// clear grew with how far the player had walked, at constant entity count,
-	// and never shrank.
-	//
-	// Nothing needed the lookup anyway: this is built in dense order and read
-	// back in dense order. The one by-entity read, the camera's target in
-	// `follow`, is a single `dense_index` call.
-	//
-	// Valid only between an `interpolate` and the next structural change to
-	// the position array - which is the whole of the render phase, since
-	// `sim` has finished stepping by then.
+	// Not a sparse set: clearing one costs the highest entity slot ever
+	// allocated, and streaming never frees a slot, so the per-frame cost grew
+	// with how far the player had walked at constant entity count. Nothing
+	// needed the lookup - this is built and read back in dense order.
 	render_position: [dynamic]sim.Vec2,
 	textures:        [sim.Texture_Id]rl.Texture2D,
 	camera:          rl.Camera2D,
 	draw_list:       [dynamic]Draw_Item,
 }
 
-// Sprite sheet layout. This lives here and not in `sim`: the simulation says
-// which animation is playing and which frame it is on, and where that lands in
-// a texture is entirely the renderer's business.
+// Sheet layout is the renderer's business: the simulation says which animation
+// and which frame, not where that lands in a texture.
 FRAME_W :: 16
 FRAME_H :: 24
 
@@ -88,11 +78,10 @@ renderer_destroy :: proc(r: ^Renderer) {
 	r^ = {}
 }
 
-// Interpolation - previous + current + the accumulator fraction. Purely
-// display-only: run it once per rendered frame, after the fixed steps.
+// Display-only: once per rendered frame, after the fixed steps.
 interpolate :: proc(r: ^Renderer, s: ^sim.State, alpha: f32) {
-	// Rebuilt from scratch each frame, so entities that were destroyed or
-	// streamed out simply do not reappear. Nothing has to remove them.
+	// Rebuilt each frame, so entities destroyed or streamed out simply do not
+	// reappear and nothing has to remove them.
 	resize(&r.render_position, len(s.spatial.position.dense))
 
 	for pos, i in s.spatial.position.dense {
@@ -103,8 +92,7 @@ interpolate :: proc(r: ^Renderer, s: ^sim.State, alpha: f32) {
 }
 
 follow :: proc(r: ^Renderer, s: ^sim.State, smoothing: f32 = 1) {
-	// A player with no position leaves the target at the origin, which is what
-	// the sparse-set lookup this replaces fell back to.
+	// A player with no position leaves the target at the origin.
 	target := sim.Vec2{}
 	if d, ok := ecs.dense_index(&s.spatial.position, s.player); ok {
 		target = r.render_position[d]
@@ -130,9 +118,7 @@ draw :: proc(r: ^Renderer, s: ^sim.State) {
 	rl.EndMode2D()
 }
 
-// The block the player is working on, and how far through it they are. Read
-// straight off the digger component - the simulation says what it is doing and
-// this draws it, which is the same direction everything else here runs in.
+// The block being worked on, read straight off the digger component.
 draw_dig_target :: proc(r: ^Renderer, s: ^sim.State) {
 	digger := ecs.get(&s.control.digger, s.player)
 	if digger == nil || digger.progress <= 0 {
@@ -148,26 +134,21 @@ draw_dig_target :: proc(r: ^Renderer, s: ^sim.State) {
 	y := i32(digger.target.y) * world.TILE_SIZE
 	rl.DrawRectangleLines(x, y, world.TILE_SIZE, world.TILE_SIZE, {240, 240, 240, 200})
 
-	// A bar across the bottom of the tile, because a crack overlay needs art
-	// and this needs none.
+	// A bar rather than a crack overlay, which would need art.
 	filled := i32(f32(world.TILE_SIZE) * min(digger.progress / hardness, 1))
 	rl.DrawRectangle(x, y + world.TILE_SIZE - 3, filled, 3, {240, 220, 120, 220})
 }
 
-// Terrain is drawn straight from the tile arrays, one quad per visible tile.
-// The spec calls for batched chunk quads - one mesh per chunk, rebuilt when
-// the chunk is edited. Not built yet; this is the version that is obviously
-// correct and obviously slower.
+// One quad per visible tile. The spec calls for batched chunk meshes; not
+// built yet, and this is the obviously correct, obviously slower version.
 draw_terrain :: proc(r: ^Renderer, s: ^sim.State) {
 	view := visible_world_rect(r)
 	lo := world.tile_coord_of_world({view.x, view.y})
 	hi := world.tile_coord_of_world({view.x + view.width, view.y + view.height})
 
-	// One cursor for the whole scan. `tile_at` resolves the chunk from scratch
-	// for every tile - a map lookup each - where the cursor keeps the last one
-	// it resolved. The inner loop runs along x, so it stays inside the same
-	// chunk for 32 tiles at a time. Every other tile-scanning loop in the
-	// codebase already does this; this one was the exception.
+	// One cursor for the scan: `tile_at` resolves the chunk from scratch every
+	// tile, and the inner loop runs along x, so it stays in the same chunk for
+	// 32 tiles at a time.
 	cur := world.cursor(&s.terrain)
 
 	for ty in lo.y ..= hi.y {
@@ -234,13 +215,12 @@ draw_entities :: proc(r: ^Renderer, s: ^sim.State) {
 	}
 }
 
-// No art yet. Rather than draw nothing, draw the body box plus a marker for
-// the current animation frame and facing, so that the animation system is
-// visible without a single png in the repository.
+// No art yet, so draw the body box plus a marker for the current frame and
+// facing - enough to see the animation system work without a single png.
 @(private)
 draw_placeholder :: proc(item: Draw_Item) {
-	// `sim.Vec2` and `rl.Vector2` are both aliases of `[2]f32`, so they are
-	// the same type and pass straight through.
+	// `sim.Vec2` and `rl.Vector2` are both `[2]f32`, so they pass straight
+	// through.
 	rl.DrawRectangleV(item.position, item.size, item.tint)
 
 	if !item.animated {
@@ -252,9 +232,8 @@ draw_placeholder :: proc(item: Draw_Item) {
 	rl.DrawRectangle(i32(item.position.x) + 1, i32(item.position.y + item.size.y) - 3, 2 + i32(item.row), 2, {20, 20, 24, 255})
 }
 
-// Where a screen pixel lands in the world. The one place that conversion
-// happens, so that everything downstream - aiming, picking, debug probes -
-// talks in world units.
+// The one place screen-to-world happens, so everything downstream talks in
+// world units.
 screen_to_world :: proc(r: ^Renderer, screen: sim.Vec2) -> sim.Vec2 {
 	return rl.GetScreenToWorld2D(screen, r.camera)
 }

@@ -115,11 +115,9 @@ hazard_tiles_damage_through_the_queue :: proc(t: ^testing.T) {
 	testing.expect(t, after < before, "standing in lava should hurt")
 }
 
-// The hazard scan is gated on a per-chunk "any hazard at all" flag, so the
-// flag has to track writes in both directions. Adding hazard is a flag set;
-// removing the last of it is the case that has to look at the rest of the
-// chunk, and getting that wrong would leave an entity taking damage from lava
-// that is no longer there - or, worse the other way, standing in lava unhurt.
+// The hazard scan is gated on a per-chunk flag, so the flag has to track
+// writes in both directions. Removing the last hazard tile is the case that
+// has to look at the rest of the chunk.
 @(test)
 removing_the_last_hazard_tile_stops_the_damage :: proc(t: ^testing.T) {
 	s: sim.State
@@ -331,16 +329,13 @@ a_rolling_fireball_slows_to_a_stop :: proc(t: ^testing.T) {
 	testing.expect_value(t, ecs.get(&s.spatial.velocity, e).x, 0)
 }
 
-// The README claims a seed and a tick count fully describe a run. They did
-// not: several passes iterated a `map`, and Odin seeds a map's hash from the
-// address its data was allocated at, so iteration order - and therefore the
-// order chunks load, the order entity slots are handed out, and the order the
-// dense arrays end up in - varied between runs of the same binary.
+// Odin seeds a map's hash from the address its data was allocated at, so
+// iteration order - and with it chunk load order, slot order and dense-array
+// order - once varied between runs of the same binary.
 //
-// Both states are kept alive at once, which is the point: run one and then the
-// other and the second tends to be handed the address the first just freed,
-// giving it the same map seed and hiding the bug. Held together they get
-// different addresses, which is the condition that used to make them diverge.
+// Both states are held alive at once on purpose: run one and then the other
+// and the second tends to reuse the address the first just freed, giving it
+// the same map seed and hiding the bug.
 @(test)
 a_seed_and_a_tick_count_fully_describe_a_run :: proc(t: ^testing.T) {
 	SEED :: u64(20250906)
@@ -356,8 +351,7 @@ a_seed_and_a_tick_count_fully_describe_a_run :: proc(t: ^testing.T) {
 	}
 
 	// Walking is what makes this a test: it drags the residency window across
-	// chunk boundaries, so chunks load and unload and entities stream in and
-	// out.
+	// chunk boundaries, so chunks load and unload.
 	step_all :: proc(s: ^sim.State) {
 		for i in 0 ..< TICKS {
 			pos := ecs.get_or(&s.spatial.position, s.player, sim.Vec2{})

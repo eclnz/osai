@@ -27,10 +27,9 @@ spawn :: proc(s: ^State, req: Spawn_Request) -> ecs.Entity {
 	case .Rock:
 		return spawn_rock(s, req.position)
 	case .Fireball:
-		// A spawn request carries a position and nothing else, so one arriving
-		// from generation or from a save gets a fireball that simply drops.
-		// Anything that means to *shoot* one calls `spawn_fireball` directly,
-		// because the velocity is the whole point.
+		// A request carries only a position, so one from generation or a save
+		// gets a fireball that simply drops. Shooting one goes through
+		// `spawn_fireball`, where the velocity is the point.
 		return spawn_fireball(s, req.position, {}, ecs.NIL)
 	}
 	return ecs.NIL
@@ -65,29 +64,25 @@ spawn_walker :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 	return e
 }
 
-// A coin adds only an item slot on top of the base. It has no health, so
-// nothing can damage it; no velocity or grounded, so nothing moves it. Those
-// are still declared by absence - the lines are simply not written.
+// An item slot on top of the base. No health, so nothing can damage it; no
+// velocity, so nothing moves it. Declared by the lines that are not written.
 spawn_coin :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 	e := spawn_base(s, .Coin, position)
 	ecs.add(&s.items.item, e, Item_Slot{item = .Coin, count = 1})
 	return e
 }
 
-// What a broken block leaves behind. Identical to a coin but for the row it
-// comes from and the item in the slot - which is the point: neither the mining
-// system nor the pickup drain has a word to say about rocks specifically.
+// Identical to a coin but for its row and its item, which is the point:
+// nothing in mining or pickup says anything about rocks.
 spawn_rock :: proc(s: ^State, position: Vec2) -> ecs.Entity {
 	e := spawn_base(s, .Rock, position)
 	ecs.add(&s.items.item, e, Item_Slot{item = .Rock, count = 1})
 	return e
 }
 
-// What a fireball is, expressed entirely in components: a velocity so it
-// moves, a projectile so it expires and deals damage, and a bounce so terrain
-// contact reflects it instead of stopping it. No `intent`, `movement` or
-// `grounded` - it is not steered, it does not walk, and it never stands on
-// anything.
+// A velocity so it moves, a projectile so it expires and deals damage, a
+// bounce so terrain reflects it. No `intent`, `movement` or `grounded`: it is
+// not steered, does not walk, and never stands on anything.
 spawn_fireball :: proc(s: ^State, position: Vec2, velocity: Vec2, owner: ecs.Entity) -> ecs.Entity {
 	e := spawn_base(s, .Fireball, position)
 	ecs.add(&s.spatial.velocity, e, velocity)

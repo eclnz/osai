@@ -3,8 +3,8 @@ package sim
 import "../ecs"
 import "../serial"
 
-// Just the current value. The maximum is the same for every instance of a
-// kind, so it lives in `entity_definitions` rather than being copied here.
+// Current value only; the maximum is per kind and lives in
+// `entity_definitions`.
 Health :: struct {
 	current: f32,
 }

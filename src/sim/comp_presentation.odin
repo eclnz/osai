@@ -3,17 +3,12 @@ package sim
 import "../ecs"
 import "../serial"
 
-// What an entity looks like: which texture, which animation, and how far
-// forward it sorts.
+// What an entity looks like. Written by the simulation, read by the renderer;
+// that direction is enforced by the package graph, since `sim` does not import
+// `render`.
 //
-// Written by the simulation, read only by the renderer. That direction is
-// enforced by the package graph - `sim` does not import `render` - so nothing
-// here can reach a pixel. Note what is deliberately absent: no source
-// rectangle, no sheet dimensions, no flip flag. Those are the renderer's, and
-// `Facing` is spatial, not presentational.
-//
-// `Animation_Id` and `Animation_State` are declared in sys_animation.odin, with
-// the definition table and the system that drives them.
+// Deliberately absent: source rectangle, sheet dimensions, flip flag. Those
+// are the renderer's, and `Facing` is spatial rather than presentational.
 
 Texture_Id :: enum u8 {
 	None,
@@ -56,7 +51,7 @@ presentation_detach :: proc(p: ^Presentation, e: ecs.Entity) {
 	ecs.remove(&p.layer, e)
 }
 
-// Write order here is the read order in `presentation_load`.
+// Write order is the read order in `presentation_load`.
 presentation_save :: proc(w: ^serial.Writer, p: ^Presentation) {
 	serial.put_set(w, &p.appearance)
 	serial.put_set(w, &p.animation)

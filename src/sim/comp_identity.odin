@@ -4,25 +4,14 @@ import "../ecs"
 import "../serial"
 import "../world"
 
-// What an entity is, as a row reference rather than a name.
+// What an entity is, as a one-byte reference to a table row rather than a
+// name. Stats every walker shares live in the row, not on each entity.
 //
-// The stats that every walker shares - move speed, collider size, max health -
-// are one table row, not a copy on each entity. `kind` is the one byte that
-// says which row. This follows the convention already used three times over:
-// `animation_definitions`, `item_definitions`, `tile_definitions`.
+// No system branches on kind; they index a table with it. Nothing asks "is
+// this a player".
 //
-// This does not put identity back into the simulation. No system branches on
-// kind; they index a table with it, exactly as the animation system indexes
-// `animation_definitions[anim.current]`. Nothing asks "is this a player".
-//
-// Composition is untouched by this. Components that used to carry shared
-// values still exist and still declare by presence - `Movement` is on the
-// things that move and absent from a coin, as before. What changed is that it
-// now holds a one-byte reference to a row instead of a private copy of it.
-
-// Reusing world's spawn kind rather than declaring a parallel enum: it is
-// already the shared vocabulary for "which sort of thing", and it means
-// `spawn` can index the table straight from a Spawn_Request.
+// Reusing world's spawn kind rather than a parallel enum lets `spawn` index
+// the table straight from a Spawn_Request.
 Entity_Kind :: world.Spawn_Kind
 
 Movement_Params :: struct {
@@ -44,17 +33,11 @@ Entity_Definition :: struct {
 	depth:      i16,
 }
 
-// Indexed by kind, one entry per kind.
-//
-// `@(rodata)` rather than a plain global: these tables are the game, not the
-// state - never saved, never written at runtime - and this puts them in
-// read-only memory to say so. It does not reject a write at compile time; what
-// it buys is that an accidental one faults immediately instead of quietly
-// changing the game, and that the optimiser knows nothing can alias and
-// change a row underneath it.
-//
-// The table stays addressable, which matters: `movement_system` reads the row
-// by pointer rather than copying 24 bytes onto the stack per entity per tick.
+// Indexed by kind. `@(rodata)` because the definition tables are the game, not
+// the state: never saved, never written. It does not reject a write at compile
+// time - an accidental one faults instead of quietly changing the game - and
+// the table stays addressable, which `movement_system` relies on to read its
+// row by pointer.
 @(rodata)
 entity_definitions := [Entity_Kind]Entity_Definition {
 	.Player = {

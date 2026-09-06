@@ -3,15 +3,11 @@ package devtools
 import "../ecs"
 import "../sim"
 
-// A per-system breakdown of the fixed step.
+// A per-system breakdown of the fixed step. Walks `sim.SCHEDULE`, so the game
+// and the measurement read the same list and cannot drift apart.
 //
-// This used to be a hand-written mirror of `sim.fixed_step` - a named
-// stopwatch per system, in an order that had to be kept in step by eye, and
-// which its own comment admitted could drift. It walks `sim.SCHEDULE` now, so
-// it cannot: the game and the measurement read the same list.
-//
-// `streaming` and `animation` are still named separately because they are
-// genuinely not in the fixed step - the frame runs them around it.
+// `streaming` and `animation` are named separately because they are not in the
+// fixed step - the frame runs them around it.
 Profile :: struct {
 	streaming: Stopwatch,
 	systems:   [len(sim.SCHEDULE)]Stopwatch,
@@ -25,9 +21,8 @@ Sample :: struct {
 	peak_us: f64,
 }
 
-// The player is held still: streaming must not unload the population being
-// measured, and a scripted walk would make every run measure a different
-// stretch of terrain.
+// The player is held still, or streaming unloads the population being measured
+// and every run covers a different stretch of terrain.
 profile :: proc(s: ^sim.State, ticks: int) -> Profile {
 	p: Profile
 	dt := sim.FIXED_DT

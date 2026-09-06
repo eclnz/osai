@@ -2,22 +2,18 @@ package sim
 
 import "../world"
 
-// Package vocabulary. Every component type now lives in its group's file -
-// comp_spatial.odin, comp_control.odin, comp_status.odin, comp_presentation.odin, comp_items.odin -
-// or, for animation, alongside the system that drives it. What is left is the
-// handful of things that belong to no group.
+// Two rules hold across every component type in this package.
 //
-// The component types share one property worth stating once: all of them are
-// plain old data. No pointers, no dynamic arrays, no methods. That is what
-// lets persistence be "write the arrays out", and what lets a component be
-// copied into a dormant blob without a deep copy.
+// All of them are plain old data - no pointers, no dynamic arrays. That is
+// what lets saving be "write the arrays out" and a dormant entity be a memcpy.
+// A component holding a pointer would compile and produce a corrupt save.
 //
-// And absence of a component *is* the declaration. There is no `has_health`
-// flag anywhere, because an entity with no entry in the health array cannot be
-// damaged - the damage system simply does not find it.
+// Absence of a component is the declaration. There is no `has_health` flag,
+// because an entity with no entry in the health array is one the damage system
+// never finds.
 
 Vec2 :: [2]f32
 
-// Shorthand for the collision system, which works in tile units constantly.
-// Not a re-export for outside callers: nothing outside `sim` uses it.
+// Shorthand for the collision systems. Not a re-export: nothing outside `sim`
+// uses it.
 TILE_SIZE :: world.TILE_SIZE

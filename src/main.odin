@@ -45,8 +45,7 @@ main :: proc() {
 	run_windowed(&state, opt)
 }
 
-// Generation runs once, outputs tiles and spawn requests, and is gone. The
-// player is spawned on top of whatever the surface turned out to be.
+// The player is spawned on top of whatever the surface turned out to be.
 start_world :: proc(s: ^sim.State) {
 	spawn_x := f32(0)
 	surface := world.surface_height(s.seed, 0)
@@ -90,10 +89,9 @@ run_windowed :: proc(s: ^sim.State, opt: Options) {
 	alpha := f32(0)
 	frame := 0
 
-	// Frame *work*, measured up to EndDrawing and so excluding the present.
-	// On macOS the compositor paces presentation to the display whatever the
-	// vsync hint says, which makes the FPS counter a reading of the panel
-	// rather than of the game. This is the number that is not.
+	// Frame work, measured up to EndDrawing and so excluding the present. On
+	// macOS the compositor paces presentation whatever the vsync hint says,
+	// which makes the FPS counter a reading of the panel rather than the game.
 	work: devtools.Stopwatch
 
 	for !rl.WindowShouldClose() {
@@ -193,9 +191,8 @@ handle_hotkeys :: proc(s: ^sim.State) {
 
 // ---------------------------------------------------------------- headless
 //
-// The simulation does not need a window, which is the point of keeping
-// raylib out of `sim` entirely. This runs the same fixed step with a scripted
-// intent, so a seed and a tick count fully describe a run.
+// The same fixed step with scripted intent and no window - which is what
+// keeping raylib out of `sim` buys.
 
 run_headless :: proc(s: ^sim.State, ticks: int, extra_entities := 0, profile := false) {
 	fmt.printfln("headless: seed %v, %v ticks", s.seed, ticks)

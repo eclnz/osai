@@ -2,22 +2,16 @@ package sim
 
 import "../ecs"
 
-// Which entities are near which, so that an interaction system does not have
-// to look at every entity to find the few it cares about.
+// Which entities are near which. One grid serves every kind of overlap: each
+// interaction asks the same structure and then filters by component presence,
+// so a new one is a new small system rather than another N-by-M loop.
 //
-// One grid serves every kind of overlap. A system that wants "creatures near
-// this arrow" and one that wants "items near this collector" ask the same
-// structure and then filter by component presence - so a new interaction is a
-// new small system, not a change to an existing one and not another N-by-M
-// loop over two arrays.
-//
-// Built fresh each tick into the temp allocator. It is scratch derived from
-// position and collider, never state: nothing reads it between ticks, nothing
-// saves it, and rebuilding is cheaper than keeping it correct under movement.
+// Rebuilt each tick into the temp allocator. Nothing reads it between ticks,
+// and rebuilding is cheaper than keeping it correct under movement.
 
-// Cell size in world units. Chosen so that a collider fits inside one cell,
-// which is what lets an entity be filed under a single cell instead of every
-// cell it touches - see the assert in `broadphase_build`.
+// World units, sized so a collider fits in one cell - which is what lets an
+// entity be filed under a single cell instead of every cell it touches. The
+// assert in `broadphase_build` holds that.
 BROADPHASE_CELL :: f32(32)
 
 Broadphase :: struct {
@@ -26,15 +20,15 @@ Broadphase :: struct {
 	starts: []u32,
 	items:  []ecs.Entity,
 	// Parallel to `items`, so the narrow phase re-tests overlap without a
-	// sparse lookup per candidate. This is most of the point.
+	// sparse lookup per candidate.
 	boxes:   []AABB,
 	buckets: u32,
 }
 
 @(private = "file")
 cell_of :: proc(p: Vec2) -> [2]i32 {
-	// Floor, not truncate: the cell either side of the origin must not fold
-	// into one, same reason `tile_coord_of_world` does it.
+	// Floor, not truncate: the cells either side of the origin must not fold
+	// into one.
 	cx := i32(p.x / BROADPHASE_CELL)
 	cy := i32(p.y / BROADPHASE_CELL)
 	if p.x < 0 && f32(cx) * BROADPHASE_CELL != p.x {cx -= 1}
@@ -44,16 +38,15 @@ cell_of :: proc(p: Vec2) -> [2]i32 {
 
 @(private = "file")
 bucket_of :: proc(cell: [2]i32, buckets: u32) -> u32 {
-	// The world is unbounded, so cells hash into a fixed table rather than
-	// indexing one. Collisions just mean a few extra narrow-phase tests.
+	// The world is unbounded, so cells hash into a fixed table. A collision
+	// only means a few extra narrow-phase tests.
 	h := u32(cell.x) * 0x9E3779B1 + u32(cell.y) * 0x85EBCA77
 	h ~= h >> 15
 	return h & (buckets - 1)
 }
 
-// Files every entity that has both a collider and a position. Two passes:
-// count per bucket, then place. No per-bucket dynamic arrays, so no
-// allocation churn and the result is contiguous.
+// Counting sort: count per bucket, then place. No per-bucket dynamic arrays,
+// so the result is contiguous and nothing churns.
 broadphase_build :: proc(s: ^State, allocator := context.temp_allocator) -> Broadphase {
 	n := len(s.spatial.collider.dense)
 
@@ -72,8 +65,7 @@ broadphase_build :: proc(s: ^State, allocator := context.temp_allocator) -> Broa
 		return bp
 	}
 
-	// Gather once: the second pass re-reads these instead of re-querying the
-	// sparse sets.
+	// Gathered once so the placement pass does not re-query the sparse sets.
 	ents := make([]ecs.Entity, n, allocator)
 	boxes := make([]AABB, n, allocator)
 	slots := make([]u32, n, allocator)
@@ -116,20 +108,17 @@ broadphase_build :: proc(s: ^State, allocator := context.temp_allocator) -> Broa
 	return bp
 }
 
-// Appends the indices of every entity filed near `box`. Indices address
-// `bp.items` and `bp.boxes` together.
+// Appends indices addressing `bp.items` and `bp.boxes` together.
 //
-// The scan is widened by one cell on the minimum side because entities are
-// filed by the cell of their top-left corner: a neighbour whose corner sits in
-// the previous cell can still reach into this one. That is exact as long as no
-// collider exceeds a cell, which `broadphase_build` asserts.
+// Widened by one cell on the minimum side because entities are filed by the
+// cell of their top-left corner, so a neighbour filed in the previous cell can
+// still reach into this one. Exact as long as no collider exceeds a cell.
 broadphase_query :: proc(bp: ^Broadphase, box: AABB, out: ^[dynamic]u32) {
 	lo := cell_of({box.min.x - BROADPHASE_CELL, box.min.y - BROADPHASE_CELL})
 	hi := cell_of(box.max)
 
-	// Two distinct cells can hash to one bucket, which would report its
-	// occupants twice. The scan is at most a few cells, so a linear check
-	// against the buckets already visited is cheaper than any set.
+	// Two cells can hash to one bucket and report its occupants twice. The
+	// scan is a few cells, so a linear check beats any set.
 	seen: [16]u32
 	seen_n := 0
 

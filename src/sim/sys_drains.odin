@@ -2,32 +2,25 @@ package sim
 
 import "../ecs"
 
-// Each queue is drained by exactly one procedure, and each drain clears the
-// queue it owns. Anything appended *after* its drain - by a later system in
-// the step, such as `consequences_system` in sys_consequences.odin - survives to
-// be drained on the next fixed step rather than being silently dropped.
+// Each queue is drained by exactly one procedure, which clears it. Anything
+// appended after its own drain survives to the next fixed step rather than
+// being dropped.
 //
-// Everything in this file consumes a queue. A pass that reads component arrays
-// without draining anything belongs in a systems_*.odin file instead.
-//
-// They take a `dt` they do not use, because everything in `SCHEDULE` has the
-// same shape - the same reason `facing_system` and `consequences_system` do.
+// The unused `dt` is there because every row in `SCHEDULE` has one shape.
 
 // The only writer to the health array.
 drain_damage :: proc(s: ^State, dt: f32) {
 	for event in s.events.damage {
 		health := ecs.get(&s.status.health, event.target)
 		if health == nil {
-			// No health component: not damageable. Not an error, not a
-			// special case - just an entity that is not in the array.
+			// No health component: not damageable. Not an error.
 			continue
 		}
 
 		health.current = max(0, health.current - event.amount)
 
-		// The damage system does not know how to animate anything. It writes
-		// a command into the animation state and moves on; the animation
-		// system decides whether that command wins.
+		// Writes a command and moves on; the animation system decides whether
+		// it outranks what it would derive.
 		command_animation(s, event.target, .Hurt, 200, 0.30)
 
 		append(&s.events.sounds, Sound_Request{
@@ -38,18 +31,12 @@ drain_damage :: proc(s: ^State, dt: f32) {
 	clear(&s.events.damage)
 }
 
-// What a hit costs. Runs before `drain_damage`, so a hit landed this tick is
-// paid for in the same tick rather than the next one.
-//
-// The damage still goes through the damage queue rather than being written
-// here: health has exactly one writer, and a fireball is not a reason to make
-// it two. What this drain owns is the rest of the consequence - the end of the
-// projectile, and whatever an impact grows to mean later.
+// Runs before `drain_damage`, so a hit landed this tick is paid for in it.
+// The damage still goes through the queue: health has exactly one writer.
 drain_hits :: proc(s: ^State, dt: f32) {
 	for event in s.events.hits {
-		// Two targets can be reached in one tick by one projectile only if it
-		// was already spent by an earlier event; a stale handle is the normal
-		// way to find that out, not an error.
+		// A projectile already spent by an earlier event this tick shows up as
+		// a stale handle. Normal, not an error.
 		if !ecs.entity_is_alive(&s.entities, event.projectile) {
 			continue
 		}
@@ -65,8 +52,8 @@ drain_hits :: proc(s: ^State, dt: f32) {
 
 drain_pickups :: proc(s: ^State, dt: f32) {
 	for event in s.events.pickups {
-		// Two collectors can overlap the same item in one step; the first
-		// one destroys it and the second finds a stale handle.
+		// Two collectors can overlap one item in a step. The first destroys
+		// it, and that is what makes the second's handle stale.
 		if !ecs.entity_is_alive(&s.entities, event.item_entity) {
 			continue
 		}
@@ -96,8 +83,8 @@ drain_pickups :: proc(s: ^State, dt: f32) {
 }
 
 drain_spawns :: proc(s: ^State, dt: f32) {
-	// Spawning appends nothing to this queue, but taking a copy of the length
-	// first keeps that from being load-bearing.
+	// Spawning appends nothing here today; the length copy keeps that from
+	// being load-bearing.
 	count := len(s.events.spawns)
 	for i in 0 ..< count {
 		spawn(s, s.events.spawns[i])

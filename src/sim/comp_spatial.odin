@@ -3,8 +3,8 @@ package sim
 import "../ecs"
 import "../serial"
 
-// Which way the entity is oriented. Sticky: it follows actual movement, so an
-// entity that stops keeps facing the way it was going.
+// Sticky: follows actual movement, so an entity that stops keeps facing the
+// way it was going.
 Facing :: distinct f32 // -1 left, +1 right
 
 Collider :: struct {
@@ -15,22 +15,17 @@ Grounded :: struct {
 	on_ground: bool,
 }
 
-// How terrain collision answers. Absence is the normal case - stop dead
-// against the tile face - so nothing that walks needs to say so. Presence
-// makes the contact elastic instead: the resolved axis reverses, scaled by
-// `restitution`, and the other axis is scraped by `friction`.
+// How terrain collision answers. Absent means stop dead against the tile
+// face, which is why nothing that walks carries one.
 Bounce :: struct {
 	restitution: f32, // fraction of speed kept across the contact
 	friction:    f32, // fraction of the tangential speed shed per contact
-	// Rolling friction, in world units per second squared, applied along the
-	// surface for as long as the entity is in contact with it. Per second and
-	// not per contact, because resting on a floor is a contact resolved on
-	// every single tick: a per-contact figure would make how fast a ball rolls
-	// to a halt a function of the tick rate.
+	// Rolling friction along the surface, in world units per second squared.
+	// Per second and not per contact: resting on a floor is a contact resolved
+	// every tick, so per-contact would tie rolling to the tick rate.
 	rolling:     f32,
-	// Below this speed a reflection is not worth having: it would leave the
-	// entity jittering on a floor forever. Stop instead - and from then on the
-	// contact is a roll, not a bounce.
+	// Below this speed, settle instead of reflecting - otherwise the entity
+	// jitters on the floor forever.
 	min_speed:   f32,
 }
 
@@ -95,8 +90,8 @@ spatial_load :: proc(r: ^serial.Reader, sp: ^Spatial) -> bool {
 	return true
 }
 
-// Returns the flags for the components that were actually present, for the
-// caller to fold into the whole entity's set.
+// Returns flags for the components that were present, for the caller to fold
+// into the whole entity's set.
 spatial_capture :: proc(sp: ^Spatial, e: ecs.Entity, snap: ^Spatial_Snapshot) -> Component_Flags {
 	present: Component_Flags
 	if v := ecs.get(&sp.position, e); v != nil {snap.position = v^;present += {.Position}}

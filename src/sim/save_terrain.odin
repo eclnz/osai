@@ -3,29 +3,22 @@ package sim
 import "../world"
 import "../serial"
 
-// Persistence for the terrain.
-//
-// `world.Terrain` owns its own lifecycle - `world.terrain_init` and
-// `terrain_destroy` live over there - so this file is only the serialisation
-// adapter. It sits in `sim` rather than in `world` for a mechanical reason:
-// `Writer` and `Reader` are sim types, and `world` cannot import `sim` without
-// a cycle. Moving the serialisation primitives into a shared package would let
-// `world` own this outright, which is the tidier answer whenever a second
-// package needs to save something.
+// Terrain persistence. `world` owns the terrain's lifecycle; this is only the
+// serialisation adapter, and it could move there now that `serial` is its own
+// package - at the cost of `world`'s zero imports.
 
-// Only dirty chunks are written, each as a full snapshot. A chunk nobody has
-// edited is a pure function of the seed and its coordinate, so storing it
-// would be storing something we can recompute. Snapshots rather than diffs
-// because a diff is smaller and far easier to get wrong.
+// Only dirty chunks are written. A chunk nobody has edited is a pure function
+// of the seed and its coordinate, so storing it would be storing something we
+// can recompute. Full snapshots rather than diffs, which are easier to get
+// wrong.
 terrain_save :: proc(w: ^serial.Writer, t: ^world.Terrain) {
 	dirty_count := u32(0)
 	for _, chunk in t.chunks {
 		if chunk.dirty {dirty_count += 1}
 	}
 
-	// Sorted, so two identical runs save identical bytes. See the note on
-	// `sorted_chunk_keys` in streaming.odin: map order is a function of the
-	// allocator, not of the data.
+	// Sorted, so two identical runs save identical bytes - see
+	// `sorted_chunk_keys`.
 	serial.put(w, dirty_count)
 	for coord in sorted_chunk_keys(t.chunks) {
 		chunk := t.chunks[coord]
@@ -51,10 +44,9 @@ terrain_load :: proc(r: ^serial.Reader, t: ^world.Terrain) -> bool {
 	return true
 }
 
-// Resident chunks that were not dirty were never written, so regenerate their
-// tiles from the seed. Their entities came back with the component arrays, so
-// population must not run again - that is what the restored `populated` set in
-// the chunks group is for.
+// Clean resident chunks were never written, so regenerate them from the seed.
+// Their entities came back with the component arrays, so population must not
+// run again - that is what the restored `populated` set is for.
 terrain_regenerate_resident :: proc(
 	t: ^world.Terrain,
 	resident: map[world.Chunk_Coord]bool,

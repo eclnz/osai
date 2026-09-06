@@ -2,19 +2,15 @@ package sim
 
 import "../ecs"
 
-// Consequences of condition: what happens to an entity because of the state
-// it is in, rather than because of anything it did this step.
+// What happens to an entity because of the state it is in, rather than
+// anything it did. Death is the only one today.
 //
-// Death is the only one today. It lives outside sys_drains.odin because it drains
-// nothing - it is a pass over the health array, not a queue consumer. Its
-// placement in the step still matters though: `step.odin` runs it after every
+// Not a drain - it consumes no queue - but `SCHEDULE` runs it after every
 // queue that could have changed health, so a lethal hit and the death it
 // causes land in the same tick.
 //
-// Marking before acting is not an optimisation. Destroying inline would
-// swap-and-pop the health array underneath the loop and skip the entity moved
-// into the freed slot. `pending_destroy` in state.odin is that rule shared
-// with the other pass that needs it.
+// Marking before acting is not an optimisation: destroying inline would
+// swap-and-pop the array underneath the loop. See `pending_destroy`.
 consequences_system :: proc(s: ^State, dt: f32) {
 	for health, i in s.status.health.dense {
 		if health.current <= 0 {
@@ -28,8 +24,7 @@ consequences_system :: proc(s: ^State, dt: f32) {
 			position = ecs.get_or(&s.spatial.position, e, Vec2{}),
 		})
 	}
-	// No death animation to play out yet: the entity goes immediately. Holding
-	// it for the animation would mean a `dying` component, which is a decision
-	// for whenever combat becomes real.
+	// No death animation yet: holding the entity for one would mean a `dying`
+	// component, and that decision is not due.
 	flush_pending_destroys(s)
 }

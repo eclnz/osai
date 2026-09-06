@@ -3,10 +3,9 @@ package sim
 import "../ecs"
 import "../world"
 
-// The simulation is a bag of component arrays, a terrain, and some queues.
-// There is no `Entity` object anywhere, and no system owns any of this - they
-// are all handed the same `^State` and read and write the arrays they care
-// about.
+// Component arrays, a terrain and some queues. There is no `Entity` object
+// anywhere, and no system owns any of this: they are all handed the same
+// `^State`.
 
 State :: struct {
 	entities: ecs.Entity_Store,
@@ -22,44 +21,32 @@ State :: struct {
 	events:  Event_Queues,
 	residency: Residency,
 
-	// Scratch, not state: rebuilt by `broadphase_system` every step and read
-	// by the interaction passes after it. Derived from position and collider,
-	// never saved, and temp-allocated - so it must not be read once the
-	// frame's temp arena has been freed. Nothing outside the step does.
+	// Scratch, not state: rebuilt every step, never saved. Temp-allocated, so
+	// it must not be read once the frame's temp arena is freed.
 	broadphase: Broadphase,
 
 	seed:   u64,
 	tick:   u64,
 	player: ecs.Entity,
 
-	// Entities a pass has decided to destroy while it is still iterating the
-	// array they live in.
-	//
-	// Destroying inline swap-and-pops the dense array underneath the loop,
-	// which skips whatever was moved into the freed slot. The two passes that
-	// can destroy mid-traversal - projectile expiry and death - each used to
-	// collect into a temp array of their own and destroy afterwards. This is
-	// that pattern named once and reused, rather than allocated per pass per
-	// tick.
-	//
+	// Entities a pass decided to destroy while still iterating the array they
+	// live in - destroying inline swap-and-pops it underneath the loop.
 	// Always empty between passes, so it is scratch and is not saved.
 	//
-	// Deliberately *not* a destroy queue drained once at the end of the step.
+	// Deliberately not a destroy queue drained once at the end of the step.
 	// The drains destroy immediately and use liveness as a claim: two
-	// collectors overlapping one coin both queue a pickup, and it is the first
-	// one's destroy that makes the second's handle stale. Defer that and both
-	// collect the same coin. `drain_hits` guards a projectile the same way.
+	// collectors overlapping one coin both queue a pickup, and it is the
+	// first one's destroy that makes the second's handle stale. Defer that
+	// and both collect the same coin.
 	pending_destroy: [dynamic]ecs.Entity,
 }
 
-// Mark for destruction at the end of the current pass. Safe to call while
-// iterating any component array.
+// Safe to call while iterating any component array.
 destroy_pending :: proc(s: ^State, e: ecs.Entity) {
 	append(&s.pending_destroy, e)
 }
 
-// Destroy everything the current pass marked, and empty the buffer. Called by
-// the pass that filled it, before it returns.
+// Called by the pass that filled the buffer, before it returns.
 flush_pending_destroys :: proc(s: ^State) {
 	for e in s.pending_destroy {
 		entity_destroy(s, e)
@@ -93,9 +80,8 @@ state_destroy :: proc(s: ^State) {
 	s^ = {}
 }
 
-// One call per group. Each group file owns the list of its own arrays, so
-// adding a component means editing that group and nothing else. The compiler
-// still will not remind you - it just has one fewer place to be forgotten in.
+// One call per group, so adding a component means editing that group's file
+// and nothing else. The compiler will still not remind you.
 detach_all_components :: proc(s: ^State, e: ecs.Entity) {
 	identity_detach(&s.identity, e)
 	spatial_detach(&s.spatial, e)

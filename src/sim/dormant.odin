@@ -2,16 +2,8 @@ package sim
 
 import "../ecs"
 
-// A whole entity as plain data, for an entity that is not currently resident.
-//
-// This is a *format*, not a system. `residency.dormant` stores these, keyed by
-// the chunk they belong to, and save.odin persists them verbatim - which works
-// only because every field is POD, so the blob is one memcpy from being a file
-// record. A component holding a pointer would compile fine here and produce a
-// corrupt save.
-//
-// streaming.odin decides when an entity becomes dormant and when it wakes;
-// this file only describes what is kept in the meantime.
+// The format an entity is kept in while it is not resident. streaming.odin
+// decides when that happens.
 
 Component_Flag :: enum u8 {
 	Position,
@@ -38,16 +30,12 @@ Component_Flag :: enum u8 {
 
 Component_Flags :: bit_set[Component_Flag;u32]
 
-// A whole entity as plain data. Every field is POD, so this is one memcpy
-// away from being a save file record - which is exactly what save.odin does
-// with it.
+// Every field is POD, so save.odin writes this verbatim.
 Dormant_Entity :: struct {
 	entity:  ecs.Entity,
 	present: Component_Flags,
 
-	// Grouped components are embedded rather than listed, so a group stays one
-	// thing here too. `using` keeps `d.position` and `d.animation` resolving,
-	// so call sites do not care which arrangement a component arrived in.
+	// `using` so call sites say `d.position`, not `d.spatial.position`.
 	using identity:     Identity_Snapshot,
 	using spatial:      Spatial_Snapshot,
 	using presentation: Presentation_Snapshot,
@@ -58,8 +46,8 @@ Dormant_Entity :: struct {
 	using combat:       Combat_Snapshot,
 }
 
-// One line per group, same as `detach_all_components`. Each group decides
-// which of its own components were present and folds its flags into the set.
+// One line per group: each folds in the flags for whichever of its own
+// components were present.
 capture_entity :: proc(s: ^State, e: ecs.Entity) -> Dormant_Entity {
 	d := Dormant_Entity {
 		entity = e,

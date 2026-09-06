@@ -49,9 +49,8 @@ tiles_write_and_read_across_chunk_boundaries :: proc(t: ^testing.T) {
 
 @(test)
 generation_is_seeded_and_order_independent :: proc(t: ^testing.T) {
-	// Same seed, identical level. Use a chunk that straddles the surface -
-	// one high in the sky is all air whatever the seed, and would pass this
-	// test without testing anything.
+	// A chunk straddling the surface: one high in the sky is all air whatever
+	// the seed, and would pass without testing anything.
 	a := world.generate_chunk(1234, {3, 0})
 	b := world.generate_chunk(1234, {3, 0})
 	defer free(a)
@@ -62,9 +61,9 @@ generation_is_seeded_and_order_independent :: proc(t: ^testing.T) {
 	defer free(c)
 	testing.expect(t, a.tiles != c.tiles, "a different seed should produce a different chunk")
 
-	// Residency are pure functions of (seed, coord): generating neighbours in a
-	// different order must not change the result, or the world would depend
-	// on how the player wandered.
+	// A pure function of (seed, coord): generating neighbours in a different
+	// order must not change the result, or the world would depend on how the
+	// player wandered.
 	before := world.generate_chunk(77, {0, 0})
 	defer free(before)
 	_ = free_chunk(world.generate_chunk(77, {1, 0}))

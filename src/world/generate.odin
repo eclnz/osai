@@ -1,14 +1,11 @@
 package world
 
-// Procedural generation is not a system. It runs once per chunk, outputs a
-// tile array and spawn requests, and then it is gone. Nothing keeps a
-// reference to it and no per-frame code calls into it.
-//
-// Ordered passes: layout -> terrain detail -> populate -> validate.
+// Generation is not a system: it runs once per chunk, outputs a tile array and
+// spawn requests, and is gone. Ordered passes: layout, detail, populate,
+// validate.
 
-// Not every kind is something generation emits: `Fireball` is only ever
-// spawned by the simulation. The enum is the shared vocabulary for "which sort
-// of thing", and the populate pass simply never rolls one.
+// Shared vocabulary for "which sort of thing". Not every kind is one
+// generation emits - the populate pass never rolls a `Fireball`.
 Spawn_Kind :: enum u8 {
 	Player,
 	Walker,
@@ -22,8 +19,7 @@ Spawn_Request :: struct {
 	position: Vec2,
 }
 
-// Surface height in tiles, as a function of world tile x. Chunk-independent
-// by construction: it only reads the seed and x.
+// Chunk-independent by construction: it reads only the seed and x.
 surface_height :: proc(seed: u64, tile_x: i32) -> i32 {
 	base := f32(0)
 	rolling := (fbm_1d(seed ~ 0xa17e, f32(tile_x), 96, 3) - 0.5) * 18
@@ -76,9 +72,8 @@ generate_chunk :: proc(seed: u64, cc: Chunk_Coord) -> ^Chunk {
 	return chunk
 }
 
-// Pass 3: populate. Appends to the caller's queue rather than owning one -
-// spawn requests are simulation input, and generation does not get to reach
-// into the simulation itself.
+// Pass 3. Appends to the caller's queue rather than owning one: spawn requests
+// are simulation input, and generation does not reach into the simulation.
 populate_chunk :: proc(seed: u64, chunk: ^Chunk, out: ^[dynamic]Spawn_Request) {
 	origin := chunk_origin_tile(chunk.coord)
 
@@ -86,9 +81,8 @@ populate_chunk :: proc(seed: u64, chunk: ^Chunk, out: ^[dynamic]Spawn_Request) {
 		tx := origin.x + lx
 		surface := surface_height(seed, tx)
 
-		// Only populate the chunk that actually contains this column's
-		// surface, so a column is populated exactly once however many
-		// chunks are stacked vertically.
+		// Only the chunk containing this column's surface, so a column is
+		// populated once however many chunks are stacked vertically.
 		if chunk_coord_of_tile({tx, surface}).y != chunk.coord.y {
 			continue
 		}
@@ -108,12 +102,12 @@ populate_chunk :: proc(seed: u64, chunk: ^Chunk, out: ^[dynamic]Spawn_Request) {
 	}
 }
 
-// Pass 4: validate. What the constraints *are* is a gameplay decision and
-// deliberately unspecified; this is the mechanism, holding one constraint we
-// are confident about: nothing spawns inside solid rock.
+// Pass 4. What the constraints are is a gameplay decision and deliberately
+// unspecified; this is the mechanism, holding the one we are sure of - nothing
+// spawns inside solid rock.
 //
-// Repair rather than reject: a whole chunk is too big a unit to throw away
-// because one spawn point is buried.
+// Repairs rather than rejects: a chunk is too big a unit to throw away over
+// one buried spawn point.
 Constraint_Violation :: struct {
 	request: Spawn_Request,
 	reason:  string,

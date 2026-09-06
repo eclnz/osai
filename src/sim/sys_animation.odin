@@ -4,32 +4,25 @@ import "../ecs"
 
 // Animation is derived where it can be and commanded where it cannot.
 //
-// Idle, run, jump and fall are all visible in velocity and grounded, so
-// nothing has to tell the animation system about them. Hurt and death are
-// not, so the systems that cause them write a command plus a priority, and
-// this system decides which wins. A system writing an animation command is
-// the same shape as it writing to health: a value into an array.
+// Idle, run, jump and fall are visible in velocity and grounded, so nothing
+// has to announce them. Hurt and death are not, so whoever causes them writes
+// a command plus a priority and this decides which wins.
 //
-// The types this reads and writes are in comp_animation.odin.
-//
-// Unlike every other sys_ file, none of this is in `SCHEDULE`: animation runs
-// once per rendered frame, outside the fixed step, because what it produces is
-// looked at rather than simulated.
+// The one sys_ file with nothing in `SCHEDULE`: animation runs once per
+// rendered frame, outside the fixed step.
 
 DERIVED_PRIORITY :: 0
 
-// A command is live for as long as `command_expiry` is positive - there is no
-// separate flag. Clearing zeroes the priority too, so an expired command reads
-// as "nothing outranks the derived animation" without anyone having to check
-// the timer first.
+// A command is live while `command_expiry` is positive; there is no separate
+// flag. Clearing the priority too means an expired command reads as "nothing
+// outranks derivation" without checking the timer.
 @(private = "file")
 clear_command :: proc(anim: ^Animation_State) {
 	anim.command_expiry = 0
 	anim.command_priority = 0
 }
 
-// Burn down one frame of the active command's timer. Clamped rather than left
-// slightly negative so that zero is the single representation of "expired".
+// Clamped at zero rather than left negative, so expiry has one representation.
 @(private = "file")
 tick_command :: proc(anim: ^Animation_State, dt: f32) {
 	if anim.command_expiry <= 0 {
@@ -41,10 +34,8 @@ tick_command :: proc(anim: ^Animation_State, dt: f32) {
 	}
 }
 
-// Step the current animation's clock and set the frame it lands on.
-//
-// Looping animations wrap and never report completion; non-looping ones hold
-// on the last frame, and report `true` on the step that runs past the end.
+// Looping animations wrap and never complete; non-looping ones hold on the
+// last frame and report `true` on the step that runs past the end.
 @(private = "file")
 advance_frame :: proc(anim: ^Animation_State, dt: f32) -> (completed: bool) {
 	def := animation_definitions[anim.current]
@@ -53,9 +44,8 @@ advance_frame :: proc(anim: ^Animation_State, dt: f32) -> (completed: bool) {
 		return false
 	}
 
-	// `advanced` stays an int: a non-looping animation held past its end keeps
-	// accumulating, and it is only narrowed once it has been bounded by the
-	// frame count, which the table keeps well inside a byte.
+	// `advanced` stays an int - a non-looping animation held past its end keeps
+	// accumulating - and is narrowed only once bounded by the frame count.
 	advanced := int(anim.elapsed / def.frame_time)
 	if def.loops {
 		anim.frame = u8(advanced % max(1, def.frames))
@@ -79,7 +69,7 @@ command_animation :: proc(s: ^State, e: ecs.Entity, id: Animation_Id, priority: 
 	anim.command_expiry = duration
 }
 
-// Runs once per rendered frame
+// Runs once per rendered frame.
 animation_system :: proc(s: ^State, dt: f32) {
 	for &anim, i in s.presentation.animation.dense {
 		e := s.presentation.animation.owners[i]
@@ -100,8 +90,7 @@ animation_system :: proc(s: ^State, dt: f32) {
 
 		completed := advance_frame(&anim, dt)
 
-		// A non-looping command expires on completion as well as on its
-		// timer, whichever comes first.
+		// A non-looping command expires on completion as well as on its timer.
 		if completed && anim.command_expiry > 0 && anim.current == anim.commanded {
 			clear_command(&anim)
 		}

@@ -1,11 +1,8 @@
 package world
 
-// Everything takes a seed. Same seed, identical level.
-//
-// Note that these are pure hash functions of (seed, coordinate), not a
-// stateful RNG. That matters for chunked generation: a chunk must produce the
-// same tiles no matter what order chunks are generated in, and a stateful
-// stream would make the result depend on how the player wandered.
+// Pure hash functions of (seed, coordinate), not a stateful RNG. That is what
+// makes a chunk generate the same tiles whatever order chunks are visited in;
+// a stateful stream would make the result depend on how the player wandered.
 
 @(private)
 splitmix64 :: proc(x: u64) -> u64 {
@@ -32,8 +29,7 @@ smoothstep :: proc(t: f32) -> f32 {
 	return t * t * (3 - 2 * t)
 }
 
-// Value noise: sample the hash on a lattice of `period` and interpolate.
-// Cheap, good enough for terrain shape, and trivially seekable at any x.
+// Sample the hash on a lattice of `period` and interpolate. Seekable at any x.
 value_noise_1d :: proc(seed: u64, x: f32, period: f32) -> f32 {
 	p := x / period
 	i := i32(p)
@@ -64,8 +60,8 @@ value_noise_2d :: proc(seed: u64, x, y: f32, period: f32) -> f32 {
 	return top + (bot - top) * ty
 }
 
-// Sum of octaves. Each one is half the amplitude and half the wavelength of
-// the last, which is what stops the result looking like a single sine wave.
+// Sum of octaves, each half the amplitude and wavelength of the last - which
+// is what stops the result looking like a single sine wave.
 fbm_1d :: proc(seed: u64, x: f32, period: f32, octaves: int) -> f32 {
 	sum, amplitude, total: f32
 	p := period

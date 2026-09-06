@@ -3,13 +3,9 @@ package sim
 import "../ecs"
 import "../serial"
 
-// Things carried, and things that can be picked up.
-//
-// Two sides of the same idea: `inventory` is what an entity holds, `item` is
-// what an entity *is* when it is lying on the ground waiting to be collected.
-// The pickup drain moves one into the other and destroys the entity.
-//
-// The group is named `Items` because `Inventory` is already a component.
+// Two sides of one idea: `inventory` is what an entity holds, `item` is what
+// an entity is while lying on the ground. The pickup drain moves one into the
+// other and destroys the entity.
 
 Item_Id :: enum u8 {
 	None,
@@ -24,12 +20,9 @@ Item_Definition :: struct {
 	space_cost: u8,
 }
 
-// Indexed by type ID. Not saved - see entity_definitions.
-//
-// The attribute has no effect on this one in practice: `name` is a string, and
-// the relocation its pointer needs keeps the table in writable data. Kept for
-// the intent, and so that it lands in read-only memory the day the tables are
-// loaded from disk and the name stops being a literal.
+// Indexed by type ID. Not saved - see entity_definitions. `@(rodata)` has no
+// effect here in practice: `name` is a string, and its relocation keeps the
+// table in writable data. Kept for the intent.
 @(rodata)
 item_definitions := [Item_Id]Item_Definition {
 	.None = {name = "", stackable = false, max_stack = 0, space_cost = 0},
@@ -48,8 +41,7 @@ Inventory :: struct {
 	slots: [INVENTORY_SLOTS]Item_Slot,
 }
 
-// Capacity and organisation models are deliberately unresolved; this is the
-// smallest thing that lets the pickup queue be drained into something real.
+// Capacity and organisation models are deliberately unresolved.
 inventory_add :: proc(inv: ^Inventory, item: Item_Id, count: u16) -> (added: u16) {
 	remaining := count
 	def := item_definitions[item]
@@ -104,7 +96,7 @@ items_detach :: proc(it: ^Items, e: ecs.Entity) {
 	ecs.remove(&it.item, e)
 }
 
-// Write order here is the read order in `items_load`.
+// Write order is the read order in `items_load`.
 items_save :: proc(w: ^serial.Writer, it: ^Items) {
 	serial.put_set(w, &it.inventory)
 	serial.put_set(w, &it.item)

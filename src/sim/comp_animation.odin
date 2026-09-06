@@ -1,12 +1,7 @@
 package sim
 
-// The animation vocabulary: what an animation is, and the table of them.
-//
-// Split from the system that drives it (sys_animation.odin) so that every
-// component group in this package follows the same rule - data here, behaviour
-// in a sys_ file. Animation was the one exception, and the exception is what
-// made `Presentation` - which holds a `Sparse_Set(Animation_State)` - depend on
-// a file full of procedures that take a `^State`.
+// Animation vocabulary and its definition table. The system that drives it is
+// in sys_animation.odin.
 
 Animation_Id :: enum u8 {
 	Idle,
@@ -17,17 +12,12 @@ Animation_Id :: enum u8 {
 	Death,
 }
 
-// Ordered widest-first, and `frame` is a u8 rather than an int.
-//
-// No animation has more than a handful of frames - the longest in the table
-// below is five - so the frame index never needed eight bytes, and an int
-// there forced the whole struct to eight-byte alignment. Laid out this way it
-// is 12 bytes instead of 24, which halves the array `animation_system` streams
-// once per entity per frame.
+// Ordered widest-first, and `frame` is a u8: no animation has more than a
+// handful of frames, and an `int` there forced the struct to eight-byte
+// alignment and 24 bytes. The assert is what holds the layout.
 Animation_State :: struct {
 	elapsed:          f32,
-	// A command outranks derivation while it is unexpired. See
-	// sys_animation.odin for how a command is resolved against derivation.
+	// Positive means a command is live and outranks derivation.
 	command_expiry:   f32,
 	current:          Animation_Id,
 	commanded:        Animation_Id,
@@ -42,7 +32,7 @@ Animation_Definition :: struct {
 	loops:      bool,
 }
 
-// Indexed by type ID, one entry per type. Not saved - see entity_definitions.
+// Indexed by type ID. Not saved - see entity_definitions.
 @(rodata)
 animation_definitions := [Animation_Id]Animation_Definition {
 	.Idle  = {frames = 4, frame_time = 0.20, loops = true},

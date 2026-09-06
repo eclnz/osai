@@ -1,32 +1,25 @@
 package sim
 
-// Queues drain once per fixed step, so effects are applied at a consistent
+// Queues drain once per fixed step, so effects apply at a consistent
 // simulated rate rather than a frame-rate-dependent one.
 
 FIXED_DT :: f32(1.0) / 60.0
 
-// Cap on how many fixed steps a single frame may run. Without it, a frame
-// that takes longer than FIXED_DT to simulate makes the next frame owe even
-// more steps, and the game spirals instead of slowing down.
+// Without a cap, a frame slower than FIXED_DT leaves the next frame owing
+// more steps still, and the game spirals instead of slowing down.
 MAX_CATCHUP_STEPS :: 5
 
-// A system is a name and a procedure over the whole state; the step is the
-// ordered list of them, as data rather than as a sequence of calls.
-//
-// This is here because the profiler used to be a hand-written copy of the call
-// sequence below, with a stopwatch around each line, and said so in its own
-// comment: "mirroring means it can drift from step.odin". It cannot now -
-// devtools walks this same array. Adding a system is one row, and it is
-// profiled the moment it is added.
+// The step as data rather than a sequence of calls, so that devtools can walk
+// the same list with a stopwatch instead of keeping a hand-written copy of the
+// order that could drift from it.
 System :: struct {
 	name: string,
 	run:  proc(s: ^State, dt: f32),
 }
 
-// The order is the frame order from the spec. Terrain collision, hazard damage
-// and the three broadphase passes were one `collision_system` call; they are
-// separate rows because they are separate costs, and the grid they share now
-// lives on `State`.
+// The order is the frame order from the spec. The collision passes are
+// separate rows because they are separate costs; the grid they share lives on
+// `State`.
 SCHEDULE :: [?]System {
 	{"ai", ai_system},
 	{"weapon", weapon_system},

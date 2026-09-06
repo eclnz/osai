@@ -3,20 +3,15 @@ package sim
 import "../ecs"
 import "core:math"
 
-// Firing and flight. Terrain contact is not here: a fireball bounces because
-// it carries a `Bounce`, which `terrain_collision` already knows how to
-// resolve, not because collision knows what a projectile is. Hitting a
-// creature is in sys_collision.odin with the rest of the entity-vs-entity
-// work, for the same reason - it is one more question asked of the shared
-// broadphase.
+// Firing and flight. Terrain contact is not here - a fireball bounces because
+// it carries a `Bounce` - and neither is hitting a creature, which is one more
+// question asked of the shared broadphase in sys_collision.odin.
 
-// Reads intent and weapon, spawns projectiles. It runs before movement so a
-// shot is integrated on the tick it was fired rather than sitting still for
-// one step.
+// Reads intent and weapon, spawns projectiles. Runs before movement, so a shot
+// is integrated on the tick it was fired.
 //
-// The direction is the shooter's own velocity, normalised. A shooter standing
-// still has no direction to give, so it falls back to `facing` - which is
-// exactly what facing is for, being the last direction that was real.
+// Direction is the shooter's velocity, normalised, falling back to `facing`
+// when standing still.
 weapon_system :: proc(s: ^State, dt: f32) {
 	for &weapon, i in s.combat.weapon.dense {
 		e := s.combat.weapon.owners[i]
@@ -27,9 +22,8 @@ weapon_system :: proc(s: ^State, dt: f32) {
 		if intent == nil || !intent.fire_requested {
 			continue
 		}
-		// Consumed whether or not the shot happens, for the same reason
-		// `movement_system` consumes a jump: a held key is one shot, and two
-		// catch-up steps in one frame must not fire twice.
+		// Consumed whether or not the shot happens: a held key is one shot,
+		// and two catch-up steps must not fire twice.
 		intent.fire_requested = false
 		if weapon.cooldown > 0 {
 			continue
@@ -49,9 +43,8 @@ weapon_system :: proc(s: ^State, dt: f32) {
 
 		weapon.cooldown = WEAPON_COOLDOWN
 
-		// From the centre of the shooter, pushed out far enough to clear its
-		// own box. The owner is excluded from damage anyway, but starting
-		// inside a wall-hugging shooter would resolve the fireball backwards.
+		// Pushed clear of the shooter's own box: starting inside a wall-hugging
+		// shooter would resolve the fireball backwards.
 		fire_col := entity_definitions[.Fireball].collider
 		centre := pos^ + col.size * 0.5 - fire_col * 0.5
 		muzzle := centre + dir * (max(col.size.x, col.size.y) * 0.5 + fire_col.x)
@@ -71,17 +64,13 @@ direction_of :: proc(v: Vec2) -> Vec2 {
 	return v / length
 }
 
-// Gravity and lifetime for everything in flight.
+// Gravity and lifetime for everything in flight. Gravity is here rather than
+// in `movement_system` because that one is driven by `Movement`, meaning
+// "moves under its own power", which a thrown fireball does not. The pull
+// still comes from the definition table, so a heavier projectile is a new row.
 //
-// Gravity is applied here rather than in `movement_system` because that system
-// is driven by `Movement`, which means "moves under its own power" - a
-// fireball does not, it is thrown once and then only physics acts on it. The
-// pull itself still comes from the definition table, so a heavier projectile
-// is a new row and not a new system.
-//
-// Expiry marks first and destroys after, like `consequences_system`:
-// destroying inline would swap-and-pop the array being iterated. Both use the
-// shared `pending_destroy` buffer - see state.odin.
+// Marks before destroying: destroying inline would swap-and-pop the array
+// being iterated. See `pending_destroy`.
 projectile_system :: proc(s: ^State, dt: f32) {
 	for &proj, i in s.combat.projectile.dense {
 		e := s.combat.projectile.owners[i]

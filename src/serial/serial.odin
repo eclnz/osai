@@ -2,17 +2,12 @@ package serial
 
 import "../ecs"
 
-// Byte plumbing. A cursor over a buffer, length-prefixed arrays, and blits of
-// plain-old-data values - nothing here knows what a simulation is.
+// Byte plumbing: a cursor over a buffer, length-prefixed arrays, and blits of
+// plain-old-data values. Nothing here knows what a simulation is.
 //
-// It lives below `sim` because the component groups need it. A group's
-// `_save`/`_load` list belongs next to the group's declaration, which means
-// the group file has to reach for a writer; if that writer lived in `sim`, the
+// Below `sim` because each component group's `_save`/`_load` sits next to the
+// group's declaration and so needs a writer. If the writer lived in `sim`, the
 // groups would depend upward on the thing that aggregates them.
-//
-// The `_set` helpers make this package depend on `ecs`. That is the right
-// direction - `ecs` is a leaf, and the alternative, teaching `ecs` to
-// serialise itself, would point the dependency the wrong way.
 
 // ------------------------------------------------------------------ writer
 
@@ -22,8 +17,8 @@ Writer :: struct {
 
 put :: proc(w: ^Writer, value: $T) {
 	// Every saved type is POD, so its bytes are its state. That is a property
-	// of the component types, not of this procedure - a component holding a
-	// pointer would compile here and produce a corrupt save.
+	// of the component types, not of this procedure: one holding a pointer
+	// would compile here and produce a corrupt save.
 	v := value
 	bytes := transmute(^[size_of(T)]u8)(&v)
 	append(&w.buf, ..bytes[:])

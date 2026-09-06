@@ -4,15 +4,12 @@ import "ecs"
 import "sim"
 import rl "vendor:raylib"
 
-// Input - reads devices, writes `intent` for the player. Nothing else.
-//
-// It sits outside the fixed step because it is tied to real frames; the fixed
-// step just reads whatever `intent` currently holds. It writes the same
-// component the AI system writes for everything else, which is why neither
-// has to know the other exists.
+// Reads devices, writes `intent` for the player. Outside the fixed step
+// because it is tied to real frames; the step reads whatever `intent` holds.
+// It writes the same component the AI system writes for everything else, so
+// neither has to know the other exists.
 
-// `aim` is taken in world units, which is why the camera has to come in: the
-// conversion from a screen pixel is the renderer's business, and `sim` never
+// `aim` arrives in world units, which is why the camera comes in: `sim` never
 // learns that a screen exists.
 input_system :: proc(s: ^sim.State, aim: sim.Vec2) {
 	intent := ecs.get(&s.control.intent, s.player)
@@ -27,8 +24,8 @@ input_system :: proc(s: ^sim.State, aim: sim.Vec2) {
 
 	intent.horizontal = horizontal
 
-	// Latched, not sampled: a jump pressed between two fixed steps must not
-	// be lost, so the flag stays set until a step consumes it.
+	// Latched, not sampled: a jump pressed between two fixed steps must not be
+	// lost, so the flag stays set until a step consumes it.
 	if rl.IsKeyPressed(.SPACE) || rl.IsKeyPressed(.UP) || rl.IsKeyPressed(.W) {
 		intent.jump_requested = true
 	}
@@ -36,14 +33,13 @@ input_system :: proc(s: ^sim.State, aim: sim.Vec2) {
 		intent.fire_requested = true
 	}
 
-	// Held, not latched: digging is a thing you keep doing. Nothing consumes
-	// this, so it is written every frame - including the frame it goes false.
+	// Held, not latched. Nothing consumes it, so it is written every frame,
+	// including the frame it goes false.
 	intent.dig_requested = rl.IsMouseButtonDown(.LEFT)
 }
 
-// Called after the fixed steps have run. Clearing only once a step has
-// actually run gives a jump pressed between steps a frame of grace instead of
-// dropping it; the movement system clears the flag itself when it jumps.
+// Clearing only once a step has actually run gives a jump pressed between
+// steps a frame of grace instead of dropping it.
 input_end_frame :: proc(s: ^sim.State, steps_run: int) {
 	if steps_run == 0 {
 		return

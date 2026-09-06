@@ -3,7 +3,7 @@ package sim
 import "../ecs"
 import "../world"
 
-// Collision - entity vs terrain, then entity vs entity. Writes `grounded`,
+// Entity vs terrain, then entity vs entity.
 
 AABB :: struct {
 	min: Vec2,
@@ -21,8 +21,8 @@ overlaps :: proc(a, b: AABB) -> bool {
 @(private)
 tile_span :: proc(box: AABB) -> (lo, hi: world.Tile_Coord) {
 	lo = world.tile_coord_of_world(box.min)
-	// Nudge the far edge inwards: a box whose right edge sits exactly on a
-	// tile boundary is not touching the tile beyond it.
+	// Nudge the far edge inwards: a box whose edge sits exactly on a tile
+	// boundary is not touching the tile beyond it.
 	hi = world.tile_coord_of_world({box.max.x - 0.001, box.max.y - 0.001})
 	return
 }
@@ -32,23 +32,17 @@ AXIS_X :: 0
 @(private = "file")
 AXIS_Y :: 1
 
-// Resolve one axis of motion against solid terrain: snap the entity to the
-// face of the first solid tile it would enter, and kill that component of
-// velocity.
+// Snap the entity to the face of the first solid tile it would enter on one
+// axis, and kill that component of velocity. A zero `bounce` - what an entity
+// without the component gets - means stop dead.
 //
-// `probe` is where the box is tested, which is not always `pos` - see the
-// caller for why the x pass tests against the previous y.
+// `probe` is where the box is tested, which is not always `pos`: see the
+// caller for why the x pass tests against the previous y. The scan runs
+// perpendicular-axis outer, resolved-axis inner, which is what lets both
+// passes share one procedure.
 //
-// The scan runs perpendicular-axis outer, resolved-axis inner. That is the one
-// rule both passes followed when they were written out separately, and it is
-// what makes them the same procedure rather than two similar ones.
-//
-// `bounce` decides what happens to velocity at the contact. The zero value -
-// what every entity without the component gets - is "stop dead", which is the
-// behaviour this procedure had before bouncing existed.
-//
-// Returns whether the entity was stopped while moving in the positive
-// direction; on the y axis that means it landed on something.
+// Returns whether the entity was stopped moving in the positive direction,
+// which on y means it landed.
 @(private = "file")
 sweep_axis :: proc(
 	cur: ^world.Tile_Cursor,
@@ -80,20 +74,18 @@ sweep_axis :: proc(
 			} else {
 				pos^[axis] = f32(a + 1) * TILE_SIZE
 			}
-			// Reflect if the entity bounces and still has the speed to be
-			// worth reflecting; otherwise settle, which is the only thing that
-			// stops a ball shivering on a floor forever.
+			// Reflect only while there is speed worth reflecting; otherwise
+			// settle, or the entity shivers on the floor forever.
 			reflected := -vel^[axis] * bounce.restitution
 			if abs(reflected) > bounce.min_speed {
 				vel^[axis] = reflected
 				vel^[other] *= 1 - bounce.friction
 				// It reversed rather than stopped, so it is not resting on
-				// anything: a bouncing entity is never grounded by this pass.
+				// anything.
 				return false
 			}
-			// Too slow to bounce: it is resting against this surface, so the
-			// contact is a roll and drags along it instead. Linear, so it
-			// actually comes to a stop rather than approaching zero forever.
+			// Too slow to bounce: resting, so the contact drags instead.
+			// Linear, so it stops rather than approaching zero forever.
 			vel^[axis] = 0
 			vel^[other] = move_toward(vel^[other], 0, bounce.rolling * dt)
 			return moving_positive
@@ -102,26 +94,24 @@ sweep_axis :: proc(
 	return false
 }
 
-// One grid, rebuilt after terrain resolution so it reflects final positions,
-// and shared by every entity-vs-entity interaction that follows it in the
-// step. It lands on `State` rather than being passed down a call chain so that
-// each pass is a separate entry in `SCHEDULE` and can be timed on its own.
+// Rebuilt after terrain resolution so it reflects final positions, and shared
+// by every interaction that follows it. On `State` rather than passed down a
+// call chain, so each pass is its own row in `SCHEDULE`.
 broadphase_system :: proc(s: ^State, dt: f32) {
 	s.broadphase = broadphase_build(s)
 }
 
-// Entity vs terrain, axis at a time. X is resolved against the entity's
-// *previous* y so that walking into a wall does not also read as landing on
-// the tile above it; Y is then resolved at the corrected x.
+// Axis at a time. X resolves against the entity's previous y so that walking
+// into a wall does not also read as landing on the tile above it; y then
+// resolves at the corrected x.
 terrain_collision :: proc(s: ^State, dt: f32) {
-	// One cursor for the whole pass: consecutive entities are often in the
-	// same chunk, so it keeps paying off across the loop, not just within it.
+	// One cursor for the pass: consecutive entities are often in the same
+	// chunk.
 	cur := world.cursor(&s.terrain)
 
 	// Driven off `velocity`, not `position`: nothing without a velocity can
 	// collide with static terrain, and position is the least selective array
-	// in the game - every coin and every prop has one. At 1000 entities that
-	// is half the iterations discarded after two wasted lookups each.
+	// in the game.
 	for &vel, i in s.spatial.velocity.dense {
 		e := s.spatial.velocity.owners[i]
 
@@ -143,8 +133,8 @@ terrain_collision :: proc(s: ^State, dt: f32) {
 		landed := sweep_axis(&cur, AXIS_Y, pos^, pos, &vel, col^, bounce, dt)
 
 		if g := ecs.get(&s.spatial.grounded, e); g != nil {
-			// Standing still on a floor keeps `landed` false, so also probe
-			// one pixel below when the entity is not moving upwards.
+			// Standing still keeps `landed` false, so probe one pixel below
+			// when not moving upwards.
 			if !landed && vel.y >= 0 {
 				feet := AABB {
 					min = {pos.x + 1, pos.y + col.size.y},
@@ -166,9 +156,8 @@ terrain_collision :: proc(s: ^State, dt: f32) {
 }
 
 // Whether any chunk the span touches holds hazard at all. A collider is at
-// most one broadphase cell across and a chunk is 512 world units, so a box
-// spans at most two chunks per axis; the loop is one iteration in almost every
-// case, and the cursor caches the chunk the tile scan below then reuses.
+// most one broadphase cell across and a chunk is 512 world units, so the loop
+// is one iteration in almost every case.
 @(private = "file")
 span_may_be_hazardous :: proc(cur: ^world.Tile_Cursor, lo, hi: world.Tile_Coord) -> bool {
 	lo_cc := world.chunk_coord_of_tile(lo)
@@ -199,9 +188,8 @@ hazard_damage :: proc(s: ^State, dt: f32) {
 		box := aabb_of(pos^, col^)
 		lo, hi := tile_span(box)
 
-		// Hazard is a property of terrain, so ask terrain once instead of
-		// re-deriving it from every tile under every entity every tick. Almost
-		// always false, and then this entity costs one chunk lookup.
+		// Hazard is a property of terrain, so ask terrain once rather than
+		// re-deriving it from every tile under every entity every tick.
 		if !span_may_be_hazardous(&cur, lo, hi) {
 			continue
 		}
@@ -219,15 +207,10 @@ hazard_damage :: proc(s: ^State, dt: f32) {
 	}
 }
 
-// Entity vs entity. Collectors are entities with an inventory; items are
-// entities with an item slot. Neither array knows about the other's meaning -
-// the pairing lives here, in the one system that cares.
-//
 // Pairing is by component presence, not by kind: a collector is anything with
-// an inventory, an item is anything with an item slot, and neither array knows
-// about the other's meaning. Candidates come from the shared broadphase, so a
-// new interaction - an arrow against anything with health, say - is a new
-// system asking the same grid, not another loop over two arrays.
+// an inventory, an item anything with an item slot. Candidates come from the
+// shared broadphase, so a new interaction is a new system asking the same
+// grid rather than another loop over two arrays.
 entity_collision :: proc(s: ^State, dt: f32) {
 	bp := &s.broadphase
 
@@ -250,11 +233,9 @@ entity_collision :: proc(s: ^State, dt: f32) {
 		broadphase_query(bp, c_box, &near)
 
 		for idx in near {
-			// Box first. It is the common rejection - most candidates in a
-			// cell are simply not touching - and it keeps the reject path
-			// inside one array. `bp.items` is a second stream and is only
-			// touched once a candidate actually overlaps; the sparse lookup
-			// below is third, for the same reason.
+			// Box first: it is the common rejection, and it keeps the reject
+			// path inside one array. `bp.items` is a second stream, and the
+			// sparse lookup below a third.
 			if !overlaps(c_box, bp.boxes[idx]) {
 				continue
 			}
@@ -276,14 +257,11 @@ entity_collision :: proc(s: ^State, dt: f32) {
 	}
 }
 
-// Projectiles against anything damageable. This is the "an arrow against
-// anything with health" the comment above anticipated: a second small system
-// asking the same grid, not another loop over two arrays.
+// Projectiles against anything damageable - a second small system asking the
+// same grid.
 //
-// Detection only. What a hit costs - the damage, the end of the projectile -
-// is `drain_hits`, exactly as `entity_collision` above detects a pickup and
-// leaves `drain_pickups` to move the item and destroy it. This pass has no
-// business writing health or destroying entities, and it does not.
+// Detection only: what a hit costs is `drain_hits`, as a pickup's cost is
+// `drain_pickups`. This pass writes no health and destroys nothing.
 projectile_collision :: proc(s: ^State, dt: f32) {
 	bp := &s.broadphase
 
@@ -314,8 +292,7 @@ projectile_collision :: proc(s: ^State, dt: f32) {
 			if target == e || target == proj.owner {
 				continue
 			}
-			// Damageable is a component question, like everything else here:
-			// no health, no hit, and the fireball flies on through.
+			// No health, no hit: the fireball flies on through.
 			if !ecs.has(&s.status.health, target) {
 				continue
 			}
