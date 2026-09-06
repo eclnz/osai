@@ -22,6 +22,12 @@ State :: struct {
 	events:  Event_Queues,
 	residency: Residency,
 
+	// Scratch, not state: rebuilt by `broadphase_system` every step and read
+	// by the interaction passes after it. Derived from position and collider,
+	// never saved, and temp-allocated - so it must not be read once the
+	// frame's temp arena has been freed. Nothing outside the step does.
+	broadphase: Broadphase,
+
 	seed:   u64,
 	tick:   u64,
 	player: ecs.Entity,

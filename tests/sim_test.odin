@@ -88,7 +88,7 @@ absence_of_health_means_invulnerable :: proc(t: ^testing.T) {
 
 	append(&s.events.damage, sim.Damage_Event{target = player, amount = 10})
 	append(&s.events.damage, sim.Damage_Event{target = coin, amount = 10})
-	sim.drain_damage(&s)
+	sim.drain_damage(&s, sim.FIXED_DT)
 
 	testing.expect_value(t, ecs.get(&s.status.health, player).current, 90)
 	// Not a special case, not a flag: the coin is simply not in the array.

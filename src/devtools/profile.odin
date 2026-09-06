@@ -5,35 +5,18 @@ import "../sim"
 
 // A per-system breakdown of the fixed step.
 //
-// This mirrors `sim.fixed_step` and the per-tick passes the headless runner
-// drives around it, with a stopwatch around each part. Mirroring means it can
-// drift from step.odin - that is the price of keeping profiling out of the
-// simulation, and it is the right trade: a measuring tool that goes stale is
-// visible, a simulation that carries timers everywhere is not.
+// This used to be a hand-written mirror of `sim.fixed_step` - a named
+// stopwatch per system, in an order that had to be kept in step by eye, and
+// which its own comment admitted could drift. It walks `sim.SCHEDULE` now, so
+// it cannot: the game and the measurement read the same list.
 //
-// The order below must match step.odin exactly, or the state evolves
-// differently and the numbers describe a game you are not shipping.
+// `streaming` and `animation` are still named separately because they are
+// genuinely not in the fixed step - the frame runs them around it.
 Profile :: struct {
-	streaming:    Stopwatch,
-	ai:           Stopwatch,
-	weapon:       Stopwatch,
-	mining:       Stopwatch,
-	movement:     Stopwatch,
-	projectile:   Stopwatch,
-	integration:  Stopwatch,
-	terrain:      Stopwatch,
-	hazard:       Stopwatch,
-	broadphase:   Stopwatch,
-	entity_hit:   Stopwatch,
-	projectile_hit: Stopwatch,
-	facing:       Stopwatch,
-	drain_hits:   Stopwatch,
-	drain_damage: Stopwatch,
-	drain_pick:   Stopwatch,
-	drain_spawn:  Stopwatch,
-	consequences: Stopwatch,
-	animation:    Stopwatch,
-	tick:         Stopwatch,
+	streaming: Stopwatch,
+	systems:   [len(sim.SCHEDULE)]Stopwatch,
+	animation: Stopwatch,
+	tick:      Stopwatch,
 }
 
 Sample :: struct {
@@ -60,26 +43,9 @@ profile :: proc(s: ^sim.State, ticks: int) -> Profile {
 			intent.jump_requested = false
 		}
 
-		begin(&p.ai);sim.ai_system(s, dt);end(&p.ai)
-		begin(&p.weapon);sim.weapon_system(s, dt);end(&p.weapon)
-		begin(&p.mining);sim.mining_system(s, dt);end(&p.mining)
-		begin(&p.movement);sim.movement_system(s, dt);end(&p.movement)
-		begin(&p.projectile);sim.projectile_system(s, dt);end(&p.projectile)
-		begin(&p.integration);sim.integration_system(s, dt);end(&p.integration)
-
-		// collision_system's three passes, timed separately
-		begin(&p.terrain);sim.terrain_collision(s, dt);end(&p.terrain)
-		begin(&p.hazard);sim.hazard_damage(s, dt);end(&p.hazard)
-		begin(&p.broadphase);bp := sim.broadphase_build(s);end(&p.broadphase)
-		begin(&p.entity_hit);sim.entity_collision(s, &bp);end(&p.entity_hit)
-		begin(&p.projectile_hit);sim.projectile_collision(s, &bp);end(&p.projectile_hit)
-
-		begin(&p.facing);sim.facing_system(s, dt);end(&p.facing)
-		begin(&p.drain_hits);sim.drain_hits(s);end(&p.drain_hits)
-		begin(&p.drain_damage);sim.drain_damage(s);end(&p.drain_damage)
-		begin(&p.drain_pick);sim.drain_pickups(s);end(&p.drain_pick)
-		begin(&p.drain_spawn);sim.drain_spawns(s);end(&p.drain_spawn)
-		begin(&p.consequences);sim.consequences_system(s, dt);end(&p.consequences)
+		for sys, i in sim.SCHEDULE {
+			begin(&p.systems[i]);sys.run(s, dt);end(&p.systems[i])
+		}
 		s.tick += 1
 
 		begin(&p.animation);sim.animation_system(s, dt);end(&p.animation)
@@ -98,23 +64,9 @@ samples :: proc(p: Profile, allocator := context.allocator) -> [dynamic]Sample {
 		append(out, Sample{name = name, mean_us = mean_us(sw), peak_us = peak_us(sw)})
 	}
 	add(&out, "streaming", p.streaming)
-	add(&out, "ai", p.ai)
-	add(&out, "weapon", p.weapon)
-	add(&out, "mining", p.mining)
-	add(&out, "movement", p.movement)
-	add(&out, "projectile", p.projectile)
-	add(&out, "integration", p.integration)
-	add(&out, "terrain_collision", p.terrain)
-	add(&out, "hazard_damage", p.hazard)
-	add(&out, "broadphase", p.broadphase)
-	add(&out, "entity_collision", p.entity_hit)
-	add(&out, "projectile_collision", p.projectile_hit)
-	add(&out, "facing", p.facing)
-	add(&out, "drain_hits", p.drain_hits)
-	add(&out, "drain_damage", p.drain_damage)
-	add(&out, "drain_pickups", p.drain_pick)
-	add(&out, "drain_spawns", p.drain_spawn)
-	add(&out, "consequences", p.consequences)
+	for sys, i in sim.SCHEDULE {
+		add(&out, sys.name, p.systems[i])
+	}
 	add(&out, "animation", p.animation)
 	return out
 }

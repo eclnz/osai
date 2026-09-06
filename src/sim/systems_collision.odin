@@ -102,15 +102,12 @@ sweep_axis :: proc(
 	return false
 }
 
-collision_system :: proc(s: ^State, dt: f32) {
-	terrain_collision(s, dt)
-	hazard_damage(s, dt)
-
-	// One grid, rebuilt after terrain resolution so it reflects final
-	// positions, and shared by every entity-vs-entity interaction.
-	bp := broadphase_build(s)
-	entity_collision(s, &bp)
-	projectile_collision(s, &bp)
+// One grid, rebuilt after terrain resolution so it reflects final positions,
+// and shared by every entity-vs-entity interaction that follows it in the
+// step. It lands on `State` rather than being passed down a call chain so that
+// each pass is a separate entry in `SCHEDULE` and can be timed on its own.
+broadphase_system :: proc(s: ^State, dt: f32) {
+	s.broadphase = broadphase_build(s)
 }
 
 // Entity vs terrain, axis at a time. X is resolved against the entity's
@@ -231,7 +228,9 @@ hazard_damage :: proc(s: ^State, dt: f32) {
 // about the other's meaning. Candidates come from the shared broadphase, so a
 // new interaction - an arrow against anything with health, say - is a new
 // system asking the same grid, not another loop over two arrays.
-entity_collision :: proc(s: ^State, bp: ^Broadphase) {
+entity_collision :: proc(s: ^State, dt: f32) {
+	bp := &s.broadphase
+
 	if len(s.items.item.dense) == 0 || len(s.items.inventory.dense) == 0 {
 		return
 	}
@@ -285,7 +284,9 @@ entity_collision :: proc(s: ^State, bp: ^Broadphase) {
 // is `drain_hits`, exactly as `entity_collision` above detects a pickup and
 // leaves `drain_pickups` to move the item and destroy it. This pass has no
 // business writing health or destroying entities, and it does not.
-projectile_collision :: proc(s: ^State, bp: ^Broadphase) {
+projectile_collision :: proc(s: ^State, dt: f32) {
+	bp := &s.broadphase
+
 	if len(s.combat.projectile.dense) == 0 {
 		return
 	}
