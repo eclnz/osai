@@ -42,11 +42,21 @@ chunk_recompute_hazard :: proc(chunk: ^Chunk) {
 Terrain :: struct {
 	chunks: map[Chunk_Coord]^Chunk,
 	seed:   u64,
+	// Bumped by every tile write. Anything caching a derived answer about
+	// terrain - "is there a wall ahead of this walker" - stores the value it
+	// was computed at and recomputes when they differ. One counter for the
+	// whole terrain rather than one per chunk: tile writes are rare, and
+	// making every cache recompute for one tick is cheaper than tracking
+	// which of them cared.
+	//
+	// Starts at one, so that zero is free to mean "never computed".
+	edits:  u32,
 }
 
 terrain_init :: proc(t: ^Terrain, seed: u64) {
 	t.chunks = make(map[Chunk_Coord]^Chunk)
 	t.seed = seed
+	t.edits = 1
 }
 
 terrain_destroy :: proc(t: ^Terrain) {
@@ -142,6 +152,7 @@ set_tile :: proc(t: ^Terrain, tc: Tile_Coord, tile: Tile) -> bool {
 	was_hazard := tile_definitions[chunk.tiles[idx]].hazard > 0
 	chunk.tiles[idx] = tile
 	chunk.dirty = true
+	t.edits += 1
 
 	// Kept exact rather than conservative. Adding hazard is a flag set;
 	// removing the last one is the only case that has to look at the rest of

@@ -40,9 +40,23 @@ ai_system :: proc(s: ^State, dt: f32) {
 				ahead_tile := world.tile_coord_of_world({ahead_x, pos.y + col.size.y * 0.5})
 				floor_tile := world.tile_coord_of_world({ahead_x, foot_y})
 
-				blocked := world.cursor_is_solid_at(&cur, ahead_tile)
-				no_floor := !world.cursor_is_solid_at(&cur, floor_tile)
-				if blocked || no_floor {
+				// Two integer compares against the cached key stand in for
+				// two chunk lookups. A walker spends about twenty ticks inside
+				// the same pair of probe tiles, and mining bumps `edits`, so a
+				// cached answer cannot outlive the terrain it describes.
+				fresh :=
+					ai.probe_edits == s.terrain.edits &&
+					ai.probe_ahead == ahead_tile &&
+					ai.probe_floor == floor_tile
+				if !fresh {
+					blocked := world.cursor_is_solid_at(&cur, ahead_tile)
+					no_floor := !world.cursor_is_solid_at(&cur, floor_tile)
+					ai.turn = blocked || no_floor
+					ai.probe_edits = s.terrain.edits
+					ai.probe_ahead = ahead_tile
+					ai.probe_floor = floor_tile
+				}
+				if ai.turn {
 					ai.facing = -ai.facing
 				}
 			}

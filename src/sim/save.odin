@@ -5,7 +5,7 @@ import "../serial"
 import "core:os"
 
 SAVE_MAGIC :: u32(0x4941534f) // "OSAI"
-SAVE_VERSION :: u32(4)
+SAVE_VERSION :: u32(5)
 
 Save_Error :: enum {
 	None,
